@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/addons/CSS3DRenderer.js';
-import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js?v=12';
-import { parseYouTube } from './parse.js?v=12';
+import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js?v=13';
+import { parseYouTube } from './parse.js?v=13';
 
 // cinema.localhost is the one address where everything works: YouTube accepts it for music videos
 // (it refuses bare 127.0.0.1) and the browser treats it as secure, which tab sharing needs.
@@ -238,6 +238,7 @@ function stopFile() {
   if (!file) return;
   file.video.pause(); file.video.removeAttribute('src'); file.video.load(); file.video.remove();
   file = null; lightsState = 'idle'; needDraw = true;
+  document.body.classList.remove('filemode');
 }
 function startFile(url, autoplay) {
   if (share.stream && !share.remote) stopShare();
@@ -248,6 +249,7 @@ function startFile(url, autoplay) {
   v.src = url; v.volume = clamp(userVol / 100, 0, 1);
   ytWrap.appendChild(v);
   file = { url, video: v };
+  document.body.classList.add('filemode');
   const tell = () => { if (party.role === 'host') partySendState(); };
   v.addEventListener('play', () => { lightsState = 'play'; lastActive = performance.now(); needDraw = true; tell(); });
   v.addEventListener('pause', () => { lightsState = v.ended ? 'end' : 'pause'; needDraw = true; tell(); });
@@ -417,7 +419,7 @@ bView.addEventListener('click', () => {
 // the middle: "in" makes the sides taller than the middle, "out" the other way round.
 let curve = store.get('curve', 'off');
 {
-  const K = 0.09, maxOff = 360 * (1 / (1 - K) - 1), SC = Math.ceil(maxOff * 2.1);
+  const K = 0.14, maxOff = 360 * (1 / (1 - K) - 1), SC = Math.ceil(maxOff * 2.1);
   const map = (inward) => {
     const c = document.createElement('canvas'); c.width = c.height = 256;
     const g = c.getContext('2d'), img = g.createImageData(256, 256);
@@ -446,6 +448,8 @@ function applyCurve() {
 bCurve.addEventListener('click', () => {
   curve = { off: 'in', in: 'out', out: 'off' }[curve] || 'off';
   store.set('curve', curve); applyCurve();
+  if (curve !== 'off' && !file && !share.stream) setNotice('The curve bends a shown tab or a video file link. The browser does not let a page bend the YouTube player, so this picture stays flat.');
+  else setNotice('');
 });
 applyView(); applyCurve();
 

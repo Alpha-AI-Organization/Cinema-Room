@@ -25,6 +25,7 @@ button { cursor: pointer; }
 body.yt-direct #gl { pointer-events: none; }
 body.yt-direct #stage { cursor: default; }
 body.yt-direct #css-layer, body.yt-direct #css-layer * { pointer-events: auto !important; }
+body.sharing #yt-wrap iframe, body.filemode #yt-wrap iframe { visibility: hidden; }
 body.flat #gl { visibility: hidden; }
 body.flat #stage { cursor: default; }
 body.flat #css-layer, body.flat #css-layer * { pointer-events: auto !important; }
