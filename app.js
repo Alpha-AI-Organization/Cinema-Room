@@ -214,14 +214,14 @@ function applyHall() {
 bHall.addEventListener('click', () => { hallSound = !hallSound; applyHall(); });
 // "YouTube menu": clicks go straight to the YouTube player on the screen (gear menu: quality, speed, subtitles)
 const bYt = $('#btn-yt');
-let ytDirect = false;
+let ytDirect = store.get('ytDirect', true); // by default the mouse works the YouTube player on the screen
 function applyYt() {
   bYt.setAttribute('aria-pressed', String(ytDirect));
-  bYt.textContent = 'YouTube menu: ' + (ytDirect ? 'on' : 'off');
+  bYt.textContent = ytDirect ? 'Mouse on screen: YouTube' : 'Mouse on screen: look around';
   document.body.classList.toggle('yt-direct', ytDirect);
-  if (ytDirect) recenter();
 }
-bYt.addEventListener('click', () => { ytDirect = !ytDirect; applyYt(); });
+applyYt();
+bYt.addEventListener('click', () => { ytDirect = !ytDirect; store.set('ytDirect', ytDirect); applyYt(); });
 
 /* ---------------- sound booth link: real picture light and 3D sound ---------------- */
 // The booth window captures this tab (with permission). It sends back the real colours of the
@@ -629,11 +629,12 @@ addEventListener('keydown', (e) => {
     case 'f': toggleFs(); break;
     case 's': if (mode === 'seated') (kiosk.hidden || kioskView !== 'seats' ? openKiosk('seats') : closeKiosk()); break;
     case 'c': recenter(); break;
-    case 'Escape': if (ytDirect) { ytDirect = false; applyYt(); } closeKiosk(); break;
+    case 'Escape': closeKiosk(); break;
     default:
   }
 });
 addEventListener('pointerdown', activity, true);
+addEventListener('pointermove', activity, true); // any mouse move wakes the controls, also over the top bar
 addEventListener('touchstart', activity, { passive: true, capture: true });
 
 /* ---------------- main loop ---------------- */
