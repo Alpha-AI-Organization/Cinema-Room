@@ -235,7 +235,7 @@ bYt.addEventListener('click', () => { ytDirect = !ytDirect; store.set('ytDirect'
 // picture and the sound is real 3D audio coming from the screen. Nothing is recorded or sent.
 const bReal = $('#btn-real'), b3d = $('#btn-3d');
 let realCols = null, realAt = 0, poseDirty = true;
-const share = { stream: null, video: null, ctx: null, nodes: null, timer: 0, on3d: store.get('share3d', true) };
+const share = { stream: null, video: null, ctx: null, nodes: null, timer: 0, remote: false, calls: [], on3d: store.get('share3d', true) };
 const sCv = document.createElement('canvas'); sCv.width = 6; sCv.height = 4;
 const sCtx = sCv.getContext('2d', { willReadFrequently: true });
 const canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
@@ -245,7 +245,8 @@ function shareUi() {
   const on = !!share.stream;
   sharingNow = on;
   bReal.setAttribute('aria-pressed', String(on));
-  bReal.textContent = on ? 'Stop showing' : 'Show a tab or window';
+  bReal.textContent = on ? (share.remote ? 'The host is showing a screen' : 'Stop showing') : 'Show a tab or window';
+  bReal.disabled = on && share.remote;
   b3d.hidden = !on || !share.ctx;
   b3d.setAttribute('aria-pressed', String(share.on3d));
   b3d.textContent = '3D sound: ' + (share.on3d ? 'on' : 'off');
@@ -285,6 +286,7 @@ function buildShareAudio() {
   left.connect(dry); right.connect(dry);
   src.connect(conv); conv.connect(wet); src.connect(plain);
   dry.connect(master); wet.connect(master); plain.connect(master); master.connect(ac.destination);
+  if (ac.state === 'suspended') { const wake = () => { ac.resume(); removeEventListener('pointerdown', wake, true); }; addEventListener('pointerdown', wake, true); }
   share.ctx = ac; share.nodes = { master, dry, plain, wet };
   shareMix(); poseDirty = true;
 }
@@ -310,12 +312,18 @@ function sendPose() { // the 3D sound listener sits where the viewer sits and lo
 function stopShare() {
   if (!share.stream) return;
   clearInterval(share.timer);
-  share.stream.getTracks().forEach((t) => t.stop());
+  if (!share.remote) {
+    share.stream.getTracks().forEach((t) => t.stop());
+    for (const c of share.calls) { try { c.close(); } catch { /* gone */ } }
+    share.calls = [];
+  }
+  share.remote = false;
   if (share.ctx) share.ctx.close();
   share.video.srcObject = null; share.video.remove();
   share.stream = share.video = share.ctx = share.nodes = null;
   realCols = null; lightsState = 'pause'; needDraw = true;
   setNotice(''); shareUi();
+  if (party.role === 'host') partySendState();
 }
 async function startShare() {
   if (share.stream) { stopShare(); return; }
@@ -327,6 +335,12 @@ async function startShare() {
       selfBrowserSurface: 'exclude', surfaceSwitching: 'include', systemAudio: 'include',
     });
   } catch { return; }
+  await mountShare(stream, false);
+  if (party.role === 'host') { for (const c of party.conns) partyCall(c.peer); partySendState(); }
+}
+async function mountShare(stream, remote) {
+  if (share.stream) stopShare();
+  share.remote = remote;
   try { if (ready) player.pauseVideo(); } catch { /* no player */ }
   const v = document.createElement('video');
   v.className = 'shared';
@@ -334,13 +348,14 @@ async function startShare() {
   ytWrap.appendChild(v);
   share.stream = stream; share.video = v;
   await v.play().catch(() => {});
-  stream.getVideoTracks()[0].addEventListener('ended', stopShare);
+  const vt = stream.getVideoTracks()[0];
+  if (vt) vt.addEventListener('ended', () => { if (share.stream === stream) stopShare(); });
   if (stream.getAudioTracks().length) buildShareAudio();
   share.timer = setInterval(sampleShare, 150);
   lightsState = 'play'; lastActive = performance.now();
   if (mode !== 'lobby') closeKiosk();
   shareUi();
-  setNotice(share.ctx ? '' : 'No sound was shared, so the sound still comes from the other tab. To get 3D sound: stop, share a browser tab again and turn on "Also share tab audio".');
+  setNotice(share.ctx || remote ? '' : 'No sound was shared, so the sound still comes from the other tab. To get 3D sound: stop, share a browser tab again and turn on "Also share tab audio".');
 }
 bReal.addEventListener('click', startShare);
 b3d.addEventListener('click', () => { share.on3d = !share.on3d; store.set('share3d', share.on3d); shareMix(); shareUi(); });
@@ -825,7 +840,25 @@ function partyState() {
   const S = window.YT && window.YT.PlayerState;
   let pos = 0;
   try { pos = ready ? player.getCurrentTime() : 0; } catch { /* not ready */ }
-  return { t: 'state', v: current ? { id: current.id, list: current.list } : null, playing: !!S && (pState === S.PLAYING || pState === S.BUFFERING), pos, at: Date.now() };
+  return { t: 'state', sharing: !!share.stream && !share.remote, v: current ? { id: current.id, list: current.list } : null, playing: !!S && (pState === S.PLAYING || pState === S.BUFFERING), pos, at: Date.now() };
+}
+function partyCall(id) {
+  if (!share.stream || share.remote || !party.peer) return;
+  const call = party.peer.call(id, share.stream);
+  if (!call) return;
+  share.calls.push(call);
+  const tune = () => {
+    const pc = call.peerConnection; if (!pc) return;
+    for (const snd of pc.getSenders()) {
+      if (!snd.track || snd.track.kind !== 'video') continue;
+      snd.track.contentHint = 'motion';
+      const p = snd.getParameters();
+      if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+      p.encodings[0].maxBitrate = 8000000; p.encodings[0].maxFramerate = 30;
+      snd.setParameters(p).catch(() => {});
+    }
+  };
+  setTimeout(tune, 600); setTimeout(tune, 3000);
 }
 function partyBroadcast(msg) { for (const c of party.conns) if (c.open) c.send(msg); }
 function partySendState() { if (party.role === 'host' && party.conns.length) partyBroadcast(partyState()); }
@@ -840,6 +873,12 @@ function partySeat() { // tell the room where I sit
   else if (party.role === 'guest' && party.host && party.host.open) party.host.send({ t: 'me', name: partyName(), seat });
 }
 function partyApply(st) { // guest: follow the host
+  if (st.sharing) { // the host shows a live screen: the YouTube player waits
+    try { if (ready && pState === window.YT.PlayerState.PLAYING) player.pauseVideo(); } catch { /* no player */ }
+    partyStatus('The host is showing a live screen to the room.');
+    return;
+  }
+  if (share.remote && share.stream) stopShare();
   if (!ready || !st.v) return;
   const S = window.YT.PlayerState;
   const same = current && current.id === st.v.id && current.list === st.v.list;
@@ -860,6 +899,7 @@ function partyApply(st) { // guest: follow the host
 function partyLeave(msg) {
   clearInterval(party.timer);
   try { if (party.peer) party.peer.destroy(); } catch { /* already gone */ }
+  if (share.remote && share.stream) stopShare();
   party.role = null; party.peer = null; party.conns = []; party.host = null; party.roster = [];
   try { if (ready) player.setPlaybackRate(1); } catch { /* no player */ }
   partyStatus(msg || 'You left the room.');
@@ -875,7 +915,7 @@ function partyHost() {
   peer.on('open', () => { partyStatus('Room is open. Send the link to your friends.'); partyRoster(); });
   peer.on('connection', (c) => {
     c.meta = { name: 'Guest', seat: null };
-    c.on('open', () => { party.conns.push(c); c.send(partyState()); partyRoster(); });
+    c.on('open', () => { party.conns.push(c); c.send(partyState()); partyRoster(); partyCall(c.peer); });
     c.on('data', (m) => {
       if (m.t === 'ping') c.send({ t: 'pong', c: m.c, h: Date.now() });
       else if (m.t === 'me') { c.meta = { name: String(m.name || 'Guest').slice(0, 24), seat: m.seat && m.seat.i >= 0 && m.seat.i < ROWS && m.seat.j >= 0 && m.seat.j < COLS ? { i: m.seat.i | 0, j: m.seat.j | 0 } : null }; partyRoster(); }
@@ -892,6 +932,11 @@ function partyJoin(code) {
   const peer = new window.Peer();
   party.peer = peer;
   partyStatus('Joining the room...');
+  peer.on('call', (call) => { // the host sends a live screen
+    call.answer();
+    call.on('stream', (remote) => { if (share.stream !== remote) mountShare(remote, true); });
+    call.on('close', () => { if (share.remote && share.stream) stopShare(); });
+  });
   peer.on('open', (id) => {
     party.me = id;
     const c = peer.connect(PEER_PREFIX + code, { reliable: true });
@@ -935,6 +980,7 @@ window.cinema = {
   get camera() { return { x: cam.position.x, y: cam.position.y, z: cam.position.z, yaw: cam.rotation.y, pitch: cam.rotation.x, fov: cam.fov }; },
   get flying() { return !!fly; },
   get drawn() { return drawn; },
+  get sharing() { return { on: !!share.stream, remote: share.remote, w: share.video ? share.video.videoWidth : 0, sound: !!share.ctx }; },
   get party() { return { role: party.role, code: party.code, people: party.roster.length, drift: party.drift, offset: party.offset }; },
   get lastError() { return lastError; },
   get volume() { return ready ? player.getVolume() : null; },
