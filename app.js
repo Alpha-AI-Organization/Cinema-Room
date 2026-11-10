@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/addons/CSS3DRenderer.js';
-import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js?v=11';
-import { parseYouTube } from './parse.js?v=11';
+import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js?v=12';
+import { parseYouTube } from './parse.js?v=12';
 
 // cinema.localhost is the one address where everything works: YouTube accepts it for music videos
 // (it refuses bare 127.0.0.1) and the browser treats it as secure, which tab sharing needs.
@@ -231,7 +231,32 @@ bHall.addEventListener('click', () => { hallSound = !hallSound; applyHall(); });
 // "YouTube menu": clicks go straight to the YouTube player on the screen (gear menu: quality, speed, subtitles)
 const bYt = $('#btn-yt');
 let partyReady = false; // set once the watch together panel exists
-let sharingNow = false; // true while a tab or window is shown on the screen
+let sharingNow = false;
+/* ---------------- a direct video file link on the screen ---------------- */
+let file = null; // { url, video }
+function stopFile() {
+  if (!file) return;
+  file.video.pause(); file.video.removeAttribute('src'); file.video.load(); file.video.remove();
+  file = null; lightsState = 'idle'; needDraw = true;
+}
+function startFile(url, autoplay) {
+  if (share.stream && !share.remote) stopShare();
+  stopFile();
+  try { if (ready) player.pauseVideo(); } catch { /* no player */ }
+  const v = document.createElement('video');
+  v.className = 'shared file'; v.controls = true; v.playsInline = true; v.preload = 'auto';
+  v.src = url; v.volume = clamp(userVol / 100, 0, 1);
+  ytWrap.appendChild(v);
+  file = { url, video: v };
+  const tell = () => { if (party.role === 'host') partySendState(); };
+  v.addEventListener('play', () => { lightsState = 'play'; lastActive = performance.now(); needDraw = true; tell(); });
+  v.addEventListener('pause', () => { lightsState = v.ended ? 'end' : 'pause'; needDraw = true; tell(); });
+  v.addEventListener('seeked', tell);
+  v.addEventListener('error', () => { if (file && file.video === v) setNotice('This link did not play. It must be a direct link to a video file (for example .mp4 or .webm) that is allowed to play on other pages.'); });
+  setNotice('');
+  if (autoplay) v.play().catch(() => {});
+  if (party.role === 'host') partySendState();
+} // true while a tab or window is shown on the screen
 let ytDirect = store.get('ytDirect', true); // by default the mouse works the YouTube player on the screen
 function applyYt() {
   bYt.setAttribute('aria-pressed', String(ytDirect));
@@ -353,6 +378,7 @@ async function startShare() {
 async function mountShare(stream, remote) {
   if (share.stream) stopShare();
   share.remote = remote;
+  if (file) file.video.pause();
   try { if (ready) player.pauseVideo(); } catch { /* no player */ }
   const v = document.createElement('video');
   v.className = 'shared';
@@ -481,6 +507,7 @@ function applyVideo(p, autoplay) {
 }
 
 function startVideo(p, autoplay) {
+  stopFile();
   current = p; lastError = null; wantPlay = autoplay; loadTint(p.id);
   setNotice('');
   applyVideo(p, autoplay);
@@ -489,6 +516,7 @@ function startVideo(p, autoplay) {
 let startAt = 0; // seconds, from a ?t= link
 let wantPlay = false; // a play request that arrived while a cue was still loading
 function startPlayback() {
+  if (file) { file.video.play().catch(() => {}); return; }
   wantPlay = true;
   if (ready) { try { player.playVideo(); } catch { /* player not usable */ } } else if (pending) pending.autoplay = true; else playAfterReady = true;
 }
@@ -585,6 +613,7 @@ async function initPlayer() {
 }
 
 function togglePlay() {
+  if (file) { if (file.video.paused) file.video.play().catch(() => {}); else file.video.pause(); return; }
   if (!ready) return;
   const S = window.YT.PlayerState;
   if (pState === S.PLAYING || pState === S.BUFFERING && lightsState === 'play') player.pauseVideo();
@@ -592,6 +621,7 @@ function togglePlay() {
   else player.playVideo();
 }
 function seekBy(d) {
+  if (file) { file.video.currentTime = Math.max(0, file.video.currentTime + d); return; }
   if (!ready) return;
   const dur = player.getDuration() || 0;
   player.seekTo(clamp(player.getCurrentTime() + d, 0, dur || 1e9), true);
@@ -601,7 +631,7 @@ function seekBy(d) {
 let userVol = store.get('vol', 100);
 let hallSound = !!store.get('hall', false);
 const seatGain = () => (hallSound && seat ? 1 - 0.4 * (seat.i / (ROWS - 1)) : 1);
-function pushVol() { if (ready) player.setVolume(Math.round(userVol * seatGain())); }
+function pushVol() { if (file) file.video.volume = clamp((userVol * seatGain()) / 100, 0, 1); if (ready) player.setVolume(Math.round(userVol * seatGain())); }
 function setUserVol(v) { userVol = v; store.set('vol', v); pushVol(); syncVolume(); }
 function volBy(d) {
   if (!ready) return;
@@ -698,6 +728,14 @@ function renderRecent() {
 }
 function submitVideo(raw) {
   const p = parseYouTube(raw);
+  const link = String(raw || '').trim();
+  if (!p && /^https?:\/\//i.test(link) && !/youtu\.?be/i.test(link)) { // any other link: try it as a video file
+    setMsg('');
+    startFile(link, mode !== 'lobby');
+    if (mode !== 'lobby') closeKiosk(); else setMsg('Loaded. Pick a seat to start the film.');
+    $('#video-input').value = '';
+    return true;
+  }
   if (!p) { setMsg('That does not look like a YouTube link or video id. Try a link such as youtube.com/watch?v=...'); return false; }
   setMsg('');
   addRecent(p);
@@ -907,6 +945,7 @@ function partyState() {
   const S = window.YT && window.YT.PlayerState;
   let pos = 0;
   try { pos = ready ? player.getCurrentTime() : 0; } catch { /* not ready */ }
+  if (file) return { t: 'state', sharing: !!share.stream && !share.remote, f: file.url, v: null, playing: !file.video.paused, pos: file.video.currentTime, at: Date.now() };
   return { t: 'state', sharing: !!share.stream && !share.remote, v: current ? { id: current.id, list: current.list } : null, playing: !!S && (pState === S.PLAYING || pState === S.BUFFERING), pos, at: Date.now() };
 }
 // ask WebRTC for a high video bitrate from the first second, and for stereo film sound
@@ -957,6 +996,22 @@ function partyApply(st) { // guest: follow the host
     return;
   }
   if (share.remote && share.stream) stopShare();
+  if (st.f) { // the host plays a video file link: load the same link and follow
+    if (!file || file.url !== st.f) startFile(st.f, false);
+    if (mode === 'lobby') return;
+    const fv = file.video;
+    const want = st.pos + (st.playing ? (Date.now() + party.offset - st.at) / 1000 : 0);
+    const off = want - fv.currentTime;
+    party.drift = off;
+    if (st.playing && fv.paused) fv.play().catch(() => {});
+    if (!st.playing && !fv.paused) fv.pause();
+    if (Math.abs(off) > 0.8) { fv.currentTime = want + (st.playing ? 0.2 : 0); fv.playbackRate = 1; }
+    else if (st.playing && Math.abs(off) > 0.15) fv.playbackRate = off > 0 ? 1.1 : 0.9;
+    else fv.playbackRate = 1;
+    partyStatus('In the room. The host controls the film. Offset ' + off.toFixed(2) + ' s.');
+    return;
+  }
+  if (file && party.role === 'guest') stopFile();
   if (!ready || !st.v) return;
   const S = window.YT.PlayerState;
   const same = current && current.id === st.v.id && current.list === st.v.list;
@@ -1061,6 +1116,7 @@ window.cinema = {
   get flying() { return !!fly; },
   get drawn() { return drawn; },
   get sharing() { return { on: !!share.stream, remote: share.remote, w: share.video ? share.video.videoWidth : 0, sound: !!share.ctx }; },
+  get file() { return file ? { url: file.url, t: file.video.currentTime, paused: file.video.paused, w: file.video.videoWidth } : null; },
   get view() { return { mode: viewMode, curve }; },
   get party() { return { role: party.role, code: party.code, people: party.roster.length, drift: party.drift, offset: party.offset }; },
   get lastError() { return lastError; },
