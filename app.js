@@ -338,7 +338,13 @@ async function initPlayer() {
       onError: (e) => {
         lastError = e.data; wantPlay = false;
         console.info('YouTube player error code', e.data, 'for', watchUrl());
-        const msg = ERR[e.data] || 'This video could not be played.';
+        let msg = ERR[e.data] || 'This video could not be played.';
+        // many music videos refuse to play on a bare IP or localhost address, but play from a host name
+        const bareHost = /^(127.0.0.1|localhost)$/.test(location.hostname);
+        if ((e.data === 150 || e.data === 101) && bareHost) {
+          location.replace('http://cinema.localtest.me:' + location.port + '/?v=' + encodeURIComponent(current && current.id || ''));
+          return;
+        }
         setNotice(`${msg} (error ${e.data})`, { videoUrl: watchUrl(), actions: [100, 101, 150, 153].includes(e.data) });
         lightsState = 'idle';
         bPlay.innerHTML = ICON.play;
@@ -604,6 +610,8 @@ document.addEventListener('visibilitychange', () => { needDraw = true; });
 
 /* ---------------- boot ---------------- */
 renderRecent();
+const urlVid = parseYouTube(new URLSearchParams(location.search).get('v') || '');
+if (urlVid) { addRecent(urlVid); history.replaceState(null, '', location.pathname); }
 const startVid = recent[0] ? { id: recent[0].id, list: recent[0].list } : DEFAULT_VIDEO;
 current = startVid;
 if (!recent.length) addRecent(DEFAULT_VIDEO);

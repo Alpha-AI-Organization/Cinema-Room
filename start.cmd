@@ -31,7 +31,9 @@ pause
 exit /b 1
 
 :open
-start "" "%URL%"
+rem Open by host name, not by bare IP: YouTube refuses many music videos on 127.0.0.1 (error 150).
+rem cinema.localtest.me is a public name that points to 127.0.0.1 (this computer).
+start "" "http://cinema.localtest.me:41731/"
 exit /b 0
 
 :up
