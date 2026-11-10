@@ -2,13 +2,13 @@ import * as THREE from 'three';
 
 export const ROWS = 8;
 export const COLS = 12;
-export const SCREEN = { w: 9.6, h: 5.4, cy: 3.35 };
+export const SCREEN = { w: 14.4, h: 8.1, cy: 4.75 };
 const PX = 0.6;        // seat pitch
 const AISLE = 0.34;    // extra half-gap at the centre aisle
 const RP = 1.2;        // row pitch
 const Z0 = 6.4;        // z of row A
-const W = 5.4;         // half hall width
-const HH = 8;          // wall height
+const W = 8.2;         // half hall width
+const HH = 10.6;       // wall height
 const BACK = 17.2;     // back wall z
 
 export const rowY = (i) => 0.3 + 0.38 * i;
@@ -125,7 +125,7 @@ export function buildHall(scene) {
   // ---------- room shell ----------
   // front floor
   add(scaleUV(new THREE.PlaneGeometry(2 * W, Z0 - 0.6, 1, 1), 2 * W / 1.6, (Z0 - 0.6) / 1.6),
-    carpetMat, 0, 0, (Z0 - 0.6) / 2, -Math.PI / 2);
+    new THREE.MeshStandardMaterial({ color: 0x1c1512, roughness: 0.3, metalness: 0.15 }), 0, 0, (Z0 - 0.6) / 2, -Math.PI / 2);
   // rows (stepped tops)
   for (let i = 0; i < ROWS; i++) {
     const depth = RP + (i === ROWS - 1 ? BACK - (rowZ(i) + RP / 2) : 0);
@@ -192,9 +192,9 @@ export function buildHall(scene) {
     let k = 0;
     for (const side of [-1, 1]) {
       for (let n = 0; n < panelN; n++) {
-        dummy.position.set(side * (W - 0.06), 4.2, 1.4 + n * 1.9);
+        dummy.position.set(side * (W - 0.06), 5.2, 1.4 + n * 1.9);
         dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(0.12, 3.8, 1.05);
+        dummy.scale.set(0.12, 5.6, 1.05);
         dummy.updateMatrix();
         panels.setMatrixAt(k, dummy.matrix);
         const v = 0.85 + rnd() * 0.3;
@@ -207,7 +207,7 @@ export function buildHall(scene) {
   // wood trim above and below the panel band
   const trimMat = new THREE.MeshStandardMaterial({ color: 0x2a1a12, roughness: 0.7 });
   for (const side of [-1, 1]) {
-    add(new THREE.BoxGeometry(0.16, 0.14, BACK - 0.4), trimMat, side * (W - 0.07), 6.2, BACK / 2 + 0.2);
+    add(new THREE.BoxGeometry(0.16, 0.14, BACK - 0.4), trimMat, side * (W - 0.07), 8.2, BACK / 2 + 0.2);
     add(new THREE.BoxGeometry(0.16, 0.14, BACK - 0.4), trimMat, side * (W - 0.07), 2.2, BACK / 2 + 0.2);
   }
 
@@ -231,7 +231,7 @@ export function buildHall(scene) {
   const downs = new THREE.InstancedMesh(new THREE.CircleGeometry(0.16, 16), downMat, 12);
   {
     let k = 0;
-    for (const x of [-3, 0, 3]) for (const z of [4, 8, 12, 16]) {
+    for (const x of [-4.5, 0, 4.5]) for (const z of [4, 8, 12, 16]) {
       dummy.position.set(x, HH - 0.02, z); dummy.rotation.set(Math.PI / 2, 0, 0);
       dummy.scale.set(1, 1, 1); dummy.updateMatrix();
       downs.setMatrixAt(k++, dummy.matrix);
@@ -254,7 +254,7 @@ export function buildHall(scene) {
   }
   root.add(steps);
   const exitMat = new THREE.MeshBasicMaterial({ color: 0x2fe07a, fog: false });
-  for (const x of [-4.6, 4.6]) add(new THREE.BoxGeometry(0.6, 0.22, 0.05), exitMat, x, 4.6 + 0.3, BACK - 0.03);
+  for (const x of [-W + 1, W - 1]) add(new THREE.BoxGeometry(0.6, 0.22, 0.05), exitMat, x, 4.6 + 0.3, BACK - 0.03);
   // projection booth windows
   const boothMat = new THREE.MeshBasicMaterial({ color: 0x57647a, fog: false });
   for (const x of [-1.2, 0, 1.2]) add(new THREE.BoxGeometry(0.5, 0.3, 0.05), boothMat, x, 6.8, BACK - 0.03);
@@ -336,9 +336,10 @@ export function buildHall(scene) {
   scene.add(hemi);
   const downLights = [6, 12.5].map((z) => {
     const l = new THREE.PointLight(0xffd2a0, 40, 0, 2);
-    l.position.set(0, 7.3, z); scene.add(l); return l;
+    l.position.set(0, HH - 0.7, z); scene.add(l); return l;
   });
-  const screenLights = [[-2.6, 2.8, 2.2], [2.6, 2.8, 2.2], [0, 6.4, 3.2]].map((p) => {
+  // picture light: left, middle and right third of the screen, plus the bounce off the ceiling
+  const screenLights = [[-4.6, SCREEN.cy, 2.6], [0, SCREEN.cy, 3.0], [4.6, SCREEN.cy, 2.6], [0, HH - 1.2, 4.2]].map((p) => {
     const l = new THREE.PointLight(0x9fc0ff, 0, 0, 2);
     l.position.set(...p); scene.add(l); return l;
   });
@@ -349,29 +350,54 @@ export function buildHall(scene) {
   let house = 1;
   function setHouse(h) {
     house = h;
-    hemi.intensity = 1.2 + 2.2 * h;
+    hemi.intensity = 0.1 + 3.3 * h;
     for (const l of downLights) l.intensity = 40 * h;
-    haloMat.opacity = 0.3 + 0.7 * h;
-    lampMat.color.copy(lampOff).lerp(lampOn, 0.25 + 0.75 * h);
+    haloMat.opacity = 0.04 + 0.96 * h;
+    lampMat.color.copy(lampOff).lerp(lampOn, 0.05 + 0.95 * h);
     downMat.color.copy(downOff).lerp(downOn, h);
-    scene.fog.color.setRGB(0.08 * (0.5 + h), 0.05 * (0.5 + h), 0.04 * (0.5 + h));
+    scene.fog.color.setRGB(0.08 * (0.12 + h), 0.05 * (0.12 + h), 0.04 * (0.12 + h));
   }
   setHouse(1);
 
   const cool = new THREE.Color(0x86aaff), warm = new THREE.Color(0xffb57a), tmp = new THREE.Color();
-  function updateGlow(t, level) {
-    const mix = 0.5 + 0.5 * Math.sin(t * 0.37) * Math.sin(t * 0.11 + 1.3);
-    tmp.copy(cool).lerp(warm, mix);
-    const flick = 0.82 + 0.18 * Math.sin(t * 1.7) * Math.sin(t * 0.63 + 2) + 0.06 * Math.sin(t * 4.1);
-    for (let n = 0; n < screenLights.length; n++) {
+  // soft patches of picture light on the ceiling and on the floor in front of the screen
+  const bounceCeil = new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, color: 0x000000 });
+  const bounceFloor = bounceCeil.clone();
+  add(new THREE.PlaneGeometry(SCREEN.w * 1.25, 9), bounceCeil, 0, HH - 0.03, 3.6, Math.PI / 2);
+  add(new THREE.PlaneGeometry(SCREEN.w * 1.1, 7), bounceFloor, 0, 0.03, 4.2, -Math.PI / 2);
+  const avg = new THREE.Color();
+  const sat = (c, k) => { const m = (c.r + c.g + c.b) / 3; c.r = Math.max(0, m + (c.r - m) * k); c.g = Math.max(0, m + (c.g - m) * k); c.b = Math.max(0, m + (c.b - m) * k); };
+  // cols: three [r, g, b] values (0..1, sRGB) for the left, middle and right third of the picture
+  function setScreenLight(cols, level) {
+    avg.setRGB(0, 0, 0);
+    for (let n = 0; n < 3; n++) {
+      tmp.setRGB(cols[n][0], cols[n][1], cols[n][2], THREE.SRGBColorSpace);
+      avg.r += tmp.r / 3; avg.g += tmp.g / 3; avg.b += tmp.b / 3;
+      sat(tmp, 1.35);
       screenLights[n].color.copy(tmp);
-      screenLights[n].intensity = level * flick * (n === 2 ? 20 : 60);
+      screenLights[n].intensity = level * 150;
     }
+    sat(avg, 1.3);
+    screenLights[3].color.copy(avg);
+    screenLights[3].intensity = level * 70;
+    bounceCeil.color.copy(avg).multiplyScalar(level * 0.55);
+    bounceFloor.color.copy(avg).multiplyScalar(level * 0.4);
+  }
+  // no real picture available: a slow drift around the tint of the video (its thumbnail colour)
+  const tint = [0.55, 0.62, 0.8], fake = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  function setTint(r, g, b) { tint[0] = r; tint[1] = g; tint[2] = b; }
+  function updateGlow(t, level) {
+    for (let n = 0; n < 3; n++) {
+      const f = 0.62 + 0.2 * Math.sin(t * 0.9 + n * 1.7) * Math.sin(t * 0.31 + n) + 0.1 * Math.sin(t * 2.3 + n * 0.8);
+      const w = 0.5 + 0.5 * Math.sin(t * 0.23 + n * 2.1);
+      fake[n][0] = tint[0] * f * (0.9 + 0.2 * w); fake[n][1] = tint[1] * f; fake[n][2] = tint[2] * f * (1.1 - 0.2 * w);
+    }
+    setScreenLight(fake, level);
   }
 
   return {
     hole, cushion, back,
-    setHouse, updateGlow, setAudience,
+    setHouse, updateGlow, setScreenLight, setTint, setAudience,
     get house() { return house; },
     get hover() { return hovered; },
     setSelected(k) { const p = selected; selected = k; if (p >= 0) paint(p); if (k >= 0) paint(k); flush(); },

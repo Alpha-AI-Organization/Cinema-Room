@@ -222,6 +222,60 @@ function applyYt() {
   if (ytDirect) recenter();
 }
 bYt.addEventListener('click', () => { ytDirect = !ytDirect; applyYt(); });
+
+/* ---------------- sound booth link: real picture light and 3D sound ---------------- */
+// The booth window captures this tab (with permission). It sends back the real colours of the
+// film picture, and it needs to know where the viewer sits and looks for the 3D sound.
+const chan = 'BroadcastChannel' in window ? new BroadcastChannel('cinema-room') : null;
+const bReal = $('#btn-real');
+let realCols = null, realAt = 0, boothOn = false, poseDirty = true;
+function setBooth(on) {
+  boothOn = on; if (!on) realCols = null;
+  bReal.setAttribute('aria-pressed', String(on));
+  bReal.textContent = on ? '3D sound and real light: on' : '3D sound and real light';
+  poseDirty = true; needDraw = true;
+}
+if (chan) chan.onmessage = (e) => {
+  const m = e.data || {};
+  if (m.type === 'hello') setBooth(true);
+  else if (m.type === 'bye') setBooth(false);
+  else if (m.type === 'nocols') { realCols = null; needDraw = true; }
+  else if (m.type === 'cols') { realCols = m.cols; realAt = performance.now(); needDraw = true; }
+};
+bReal.hidden = !chan || !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+bReal.addEventListener('click', () => { window.open('booth.html', 'cinema-booth', 'popup,width=440,height=600'); });
+const corner = new THREE.Vector3(), fwd = new THREE.Vector3();
+function sendPose() {
+  if (!chan || !boothOn) return;
+  let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    corner.set(sx * SCREEN.w / 2, SCREEN.cy + sy * SCREEN.h / 2, 0).project(cam);
+    const u = clamp((corner.x + 1) / 2, 0, 1), v = clamp((1 - corner.y) / 2, 0, 1);
+    x0 = Math.min(x0, u); x1 = Math.max(x1, u); y0 = Math.min(y0, v); y1 = Math.max(y1, v);
+  }
+  cam.getWorldDirection(fwd);
+  chan.postMessage({ type: 'pose', pos: [cam.position.x, cam.position.y, cam.position.z], dir: [fwd.x, fwd.y, fwd.z], rect: [x0, y0, x1, y1] });
+}
+setInterval(() => { poseDirty = true; if (boothOn) needDraw = true; }, 2000);
+
+// tint for the simple glow: the average colour of the video thumbnail
+function loadTint(id) {
+  if (!id) return;
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    try {
+      const c = document.createElement('canvas'); c.width = c.height = 4;
+      const g = c.getContext('2d'); g.drawImage(img, 0, 0, 4, 4);
+      const d = g.getImageData(0, 0, 4, 4).data; let r = 0, gg = 0, b = 0;
+      for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; }
+      const k = 1 / (16 * 255), m = Math.max(r, gg, b) * k || 1;
+      hall.setTint(Math.min(1, (r * k) / m * 0.85 + 0.1), Math.min(1, (gg * k) / m * 0.85 + 0.1), Math.min(1, (b * k) / m * 0.85 + 0.1));
+      needDraw = true;
+    } catch { /* keep the default tint */ }
+  };
+  img.src = 'https://i.ytimg.com/vi/' + encodeURIComponent(id) + '/mqdefault.jpg';
+}
 bAud.addEventListener('click', () => { audienceOn = !audienceOn; applyAudience(); });
 
 /* ---------------- hint ---------------- */
@@ -262,7 +316,7 @@ function applyVideo(p, autoplay) {
 }
 
 function startVideo(p, autoplay) {
-  current = p; lastError = null; wantPlay = autoplay;
+  current = p; lastError = null; wantPlay = autoplay; loadTint(p.id);
   setNotice('');
   applyVideo(p, autoplay);
 }
@@ -605,15 +659,18 @@ function frame(now) {
   const sig = cam.position.x + cam.position.y * 3.1 + cam.position.z * 7.3 + cam.rotation.x * 11.7 + cam.rotation.y * 17.9 + cam.fov * 0.013;
   const fading = Math.abs(houseFor() - house) > 0.004 || Math.abs(glowFor() - glow) > 0.004;
   const glowTick = glow > 0.05 && now - lastGlow > 400;
-  if (sig !== lastSig || fading || glowTick || hall.hover !== lastHover) needDraw = true;
+  if (sig !== lastSig) poseDirty = true;
+  if (realCols && now - realAt > 1500) realCols = null; // booth went quiet
+  if (sig !== lastSig || fading || (glowTick && !realCols) || hall.hover !== lastHover) needDraw = true;
   lastSig = sig; lastHover = hall.hover;
   const idle = !ytDirect && lightsState === 'play' && mode === 'seated' && kiosk.hidden && now - lastActive > 3500 && !(drag && drag.moved);
   if (idle !== uiIdle) { uiIdle = idle; document.body.classList.toggle('ui-idle', idle); }
   if (!needDraw) return;
   needDraw = false; lastGlow = now; drawn++;
   hall.setHouse(house);
-  hall.updateGlow(t, glow);
+  if (realCols) hall.setScreenLight(realCols, glow); else hall.updateGlow(t, glow);
   renderer.render(scene, cam);
+  if (poseDirty) { poseDirty = false; sendPose(); }
   cssRenderer.render(cssScene, cam);
 }
 let lastSig = NaN, lastHover = -2, lastGlow = 0, drawn = 0;
@@ -640,6 +697,7 @@ if (savedSeat && savedSeat.i >= 0 && savedSeat.i < ROWS && savedSeat.j >= 0 && s
 applyAudience();
 applyHall();
 initPlayer();
+loadTint(startVid.id);
 requestAnimationFrame(frame);
 
 // small read-only handle used by the verification script

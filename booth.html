@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Cinema sound booth</title>
+<style>
+  :root { --bg: #0e0a09; --panel: #18110f; --line: rgba(255, 232, 200, 0.14); --text: #f3e6d6; --muted: #b7a593; --accent: #e3a04b; --accent-ink: #1b1108; --bad: #ffb49a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, "Segoe UI", sans-serif; padding: 20px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  ol { margin: 0 0 14px; padding-left: 20px; color: var(--muted); }
+  ol b { color: var(--text); font-weight: 600; }
+  button { font: inherit; cursor: pointer; border-radius: 6px; padding: 10px 14px; border: 1px solid var(--line); background: transparent; color: var(--text); }
+  button.main { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+  .row label { flex: 0 0 110px; color: var(--muted); }
+  input[type="range"] { flex: 1; accent-color: var(--accent); }
+  #status { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 10px 12px; margin: 14px 0; color: var(--text); }
+  #status.bad { color: var(--bad); }
+  #live[hidden], #intro[hidden] { display: none; }
+  .fine { font-size: 13px; }
+</style>
+</head>
+<body>
+  <h1>Cinema sound booth</h1>
+  <div id="intro">
+    <p>This small window gives the film real 3D sound and makes the hall light follow the real picture. Keep it open while you watch.</p>
+    <ol>
+      <li>Press <b>Connect</b>.</li>
+      <li>In the browser box, pick the tab named <b>Cinema Room</b>.</li>
+      <li>Turn on <b>Also share tab audio</b>, then press Share.</li>
+    </ol>
+    <button class="main" id="connect" type="button">Connect</button>
+  </div>
+  <div id="live" hidden>
+    <div class="row"><label for="s3d">3D sound</label><button id="s3d" type="button" aria-pressed="true">On</button></div>
+    <div class="row"><label for="vol">Volume</label><input id="vol" type="range" min="0" max="150" value="100"></div>
+    <div class="row"><label for="room">Hall echo</label><input id="room" type="range" min="0" max="100" value="35"></div>
+    <div class="row"><label for="lightb">Screen light</label><button id="lightb" type="button" aria-pressed="true">Real picture</button></div>
+    <button id="stop" type="button">Disconnect</button>
+  </div>
+  <p id="status" role="status">Not connected.</p>
+  <p class="fine">Nothing is recorded or sent anywhere. The picture and sound stay inside this browser. Use headphones for the best 3D effect.</p>
+  <script src="booth.js"></script>
+</body>
+</html>

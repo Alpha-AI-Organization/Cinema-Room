@@ -37,9 +37,9 @@ body.yt-direct #css-layer, body.yt-direct #css-layer * { pointer-events: auto !i
 #topbar > * { pointer-events: auto; }
 .brand { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
 .tops { display: flex; gap: 8px; }
-#btn-yt, #btn-hall, #btn-audience { background: rgba(14, 10, 9, 0.7); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 12px; color: var(--muted); }
-#btn-yt:hover, #btn-hall:hover, #btn-audience:hover { color: var(--text); border-color: rgba(255, 232, 200, 0.3); }
-#btn-yt[aria-pressed="true"], #btn-hall[aria-pressed="true"], #btn-audience[aria-pressed="true"] { color: var(--accent); border-color: rgba(227, 160, 75, 0.5); }
+#btn-real, #btn-yt, #btn-hall, #btn-audience { background: rgba(14, 10, 9, 0.7); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 12px; color: var(--muted); }
+#btn-real:hover, #btn-yt:hover, #btn-hall:hover, #btn-audience:hover { color: var(--text); border-color: rgba(255, 232, 200, 0.3); }
+#btn-real[aria-pressed="true"], #btn-yt[aria-pressed="true"], #btn-hall[aria-pressed="true"], #btn-audience[aria-pressed="true"] { color: var(--accent); border-color: rgba(227, 160, 75, 0.5); }
 
 #hint { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); margin: 0; font-size: 12px; color: var(--muted); background: rgba(14, 10, 9, 0.7); padding: 6px 12px; border-radius: 999px; opacity: 0; transition: opacity 0.6s; pointer-events: none !important; white-space: nowrap; }
 #hint.on { opacity: 1; }
