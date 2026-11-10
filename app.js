@@ -173,6 +173,7 @@ function selectSeat(i, j, { instant = false, quiet = false } = {}) {
   hall.setSelected(i * COLS + j);
   if (audienceOn) hall.setAudience(true, i * COLS + j);
   bSeat.textContent = seatLabel(i, j);
+  pushVol();
   const pose = seatPose(i, j);
   if (instant) { view = { pos: pose.pos.clone(), yaw: pose.yaw, pitch: pose.pitch }; fly = null; lookT.yaw = lookT.pitch = 0; look.yaw = look.pitch = 0; }
   else flyTo(pose);
@@ -194,6 +195,14 @@ function applyAudience() {
   hall.setAudience(audienceOn, seat ? seat.i * COLS + seat.j : -1);
   store.set('audience', audienceOn);
 }
+const bHall = $('#btn-hall');
+function applyHall() {
+  bHall.setAttribute('aria-pressed', String(hallSound));
+  bHall.textContent = 'Hall sound: ' + (hallSound ? 'on' : 'off');
+  store.set('hall', hallSound);
+  pushVol();
+}
+bHall.addEventListener('click', () => { hallSound = !hallSound; applyHall(); });
 bAud.addEventListener('click', () => { audienceOn = !audienceOn; applyAudience(); });
 
 /* ---------------- hint ---------------- */
@@ -290,7 +299,7 @@ async function initPlayer() {
     events: {
       onReady: () => {
         ready = true;
-        player.setVolume(store.get('vol', 100));
+        pushVol();
         syncVolume();
         const p = pending; pending = null;
         if (p) applyVideo(p.p, p.autoplay);
@@ -321,11 +330,18 @@ function seekBy(d) {
   const dur = player.getDuration() || 0;
   player.seekTo(clamp(player.getCurrentTime() + d, 0, dur || 1e9), true);
 }
+// "Hall sound" only scales the player volume a little by row (front louder, back softer).
+// The film audio comes from a cross-origin YouTube iframe, so there is no real 3D sound.
+let userVol = store.get('vol', 100);
+let hallSound = !!store.get('hall', false);
+const seatGain = () => (hallSound && seat ? 1 - 0.4 * (seat.i / (ROWS - 1)) : 1);
+function pushVol() { if (ready) player.setVolume(Math.round(userVol * seatGain())); }
+function setUserVol(v) { userVol = v; store.set('vol', v); pushVol(); syncVolume(); }
 function volBy(d) {
   if (!ready) return;
-  const v = clamp((player.isMuted() ? 0 : player.getVolume()) + d, 0, 100);
+  const v = clamp((player.isMuted() ? 0 : userVol) + d, 0, 100);
   if (v > 0 && player.isMuted()) player.unMute();
-  player.setVolume(v); store.set('vol', v); syncVolume();
+  setUserVol(v);
 }
 
 const seekEl = $('#seek'), volEl = $('#vol'), tCur = $('#t-cur'), tDur = $('#t-dur');
@@ -338,7 +354,7 @@ const fmt = (s) => {
 function syncVolume() {
   if (!ready) return;
   const muted = player.isMuted();
-  const v = muted ? 0 : player.getVolume();
+  const v = muted ? 0 : userVol;
   volEl.value = v;
   bMute.innerHTML = muted || v === 0 ? ICON.mute : ICON.vol;
   bMute.setAttribute('aria-label', muted || v === 0 ? 'Unmute' : 'Mute');
@@ -367,12 +383,12 @@ volEl.addEventListener('input', () => {
   if (!ready) return;
   const v = +volEl.value;
   if (player.isMuted() && v > 0) player.unMute();
-  player.setVolume(v); store.set('vol', v); syncVolume();
+  setUserVol(v);
 });
 bPlay.addEventListener('click', togglePlay);
 bMute.addEventListener('click', () => {
   if (!ready) return;
-  if (player.isMuted() || player.getVolume() === 0) { player.unMute(); if (player.getVolume() === 0) player.setVolume(60); } else player.mute();
+  if (player.isMuted() || userVol === 0) { player.unMute(); if (userVol === 0) setUserVol(60); } else player.mute();
   syncVolume();
 });
 
@@ -563,6 +579,7 @@ if (savedSeat && savedSeat.i >= 0 && savedSeat.i < ROWS && savedSeat.j >= 0 && s
   kiosk.hidden = false;
 }
 applyAudience();
+applyHall();
 initPlayer();
 requestAnimationFrame(frame);
 
@@ -574,4 +591,5 @@ window.cinema = {
   get playerState() { return pState; },
   get camera() { return { x: cam.position.x, y: cam.position.y, z: cam.position.z, yaw: cam.rotation.y, pitch: cam.rotation.x, fov: cam.fov }; },
   get flying() { return !!fly; },
+  get volume() { return ready ? player.getVolume() : null; },
 };

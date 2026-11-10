@@ -33,9 +33,10 @@ button { cursor: pointer; }
 #topbar { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; pointer-events: none; transition: opacity 0.8s; }
 #topbar > * { pointer-events: auto; }
 .brand { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
-#btn-audience { background: rgba(14, 10, 9, 0.7); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 12px; color: var(--muted); }
-#btn-audience:hover { color: var(--text); border-color: rgba(255, 232, 200, 0.3); }
-#btn-audience[aria-pressed="true"] { color: var(--accent); border-color: rgba(227, 160, 75, 0.5); }
+.tops { display: flex; gap: 8px; }
+#btn-hall, #btn-audience { background: rgba(14, 10, 9, 0.7); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 12px; color: var(--muted); }
+#btn-hall:hover, #btn-audience:hover { color: var(--text); border-color: rgba(255, 232, 200, 0.3); }
+#btn-hall[aria-pressed="true"], #btn-audience[aria-pressed="true"] { color: var(--accent); border-color: rgba(227, 160, 75, 0.5); }
 
 #hint { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); margin: 0; font-size: 12px; color: var(--muted); background: rgba(14, 10, 9, 0.7); padding: 6px 12px; border-radius: 999px; opacity: 0; transition: opacity 0.6s; pointer-events: none !important; white-space: nowrap; }
 #hint.on { opacity: 1; }
