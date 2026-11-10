@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:,">
+<title>Cinema Room</title>
+<meta name="theme-color" content="#0b0807">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/jsm/" } }
+</script>
+</head>
+<body data-mode="lobby">
+<div id="stage">
+  <div id="css-layer"></div>
+  <canvas id="gl"></canvas>
+</div>
+<div id="tip" hidden></div>
+
+<div id="ui">
+  <header id="topbar">
+    <span class="brand">Cinema Room</span>
+    <button id="btn-audience" type="button" aria-pressed="false">Audience: empty</button>
+  </header>
+
+  <p id="hint">Drag to look around. Double-click to recenter.</p>
+  <p id="notice" role="alert" hidden></p>
+
+  <section id="kiosk" data-mode="lobby" role="dialog" aria-labelledby="kiosk-title">
+    <button class="close" type="button" id="kiosk-close" aria-label="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div class="sec seats">
+      <p class="eyebrow">Screen 1</p>
+      <h1 id="kiosk-title">Choose your seat</h1>
+      <p class="sub" id="kiosk-sub">The film starts when you sit down.</p>
+      <div id="seatmap">
+        <div class="screenbar"><span>Screen</span></div>
+        <div class="rows" id="seat-rows"></div>
+      </div>
+      <ul class="legend">
+        <li><i class="k free"></i>Free</li>
+        <li><i class="k mine"></i>Your seat</li>
+      </ul>
+      <p class="keys">Keys: Space play, arrows seek and volume, F fullscreen, S seat map, C recenter.</p>
+    </div>
+    <form class="sec video" id="video-form" autocomplete="off">
+      <label for="video-input">Now showing</label>
+      <div class="field">
+        <input id="video-input" type="text" inputmode="url" spellcheck="false" placeholder="YouTube link or video id">
+        <button type="submit">Load</button>
+      </div>
+      <p id="video-msg" aria-live="polite"></p>
+      <div id="recent-wrap" hidden>
+        <p class="eyebrow">Recent</p>
+        <div id="recent"></div>
+      </div>
+    </form>
+  </section>
+
+  <div id="bar" role="toolbar" aria-label="Player controls">
+    <div class="seekrow">
+      <span id="t-cur">0:00</span>
+      <input id="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek">
+      <span id="t-dur">0:00</span>
+    </div>
+    <div class="btnrow">
+      <button id="b-play" type="button" aria-label="Play"></button>
+      <button id="b-mute" type="button" aria-label="Mute"></button>
+      <input id="vol" type="range" min="0" max="100" value="100" step="1" aria-label="Volume">
+      <span class="grow"></span>
+      <button id="b-seat" type="button" class="txt"></button>
+      <button id="b-video" type="button" class="txt">Change video</button>
+      <button id="b-fs" type="button" aria-label="Fullscreen"></button>
+    </div>
+  </div>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
