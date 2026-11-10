@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/addons/CSS3DRenderer.js';
-import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js';
-import { parseYouTube } from './parse.js';
+import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js?v=9';
+import { parseYouTube } from './parse.js?v=9';
 
 // cinema.localhost is the one address where everything works: YouTube accepts it for music videos
 // (it refuses bare 127.0.0.1) and the browser treats it as secure, which tab sharing needs.
