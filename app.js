@@ -184,6 +184,7 @@ function selectSeat(i, j, { instant = false, quiet = false } = {}) {
   store.set('seat', { i, j });
   seatBtns.forEach((b, k) => b.setAttribute('aria-pressed', String(k === i * COLS + j)));
   hall.setSelected(i * COLS + j); needDraw = true;
+  setTimeout(() => { if (party.role) { partySeat(); partyUi(); } }, 0);
   if (audienceOn) hall.setAudience(true, i * COLS + j);
   bSeat.textContent = seatLabel(i, j);
   pushVol();
@@ -447,6 +448,7 @@ function onState(e) {
   if (pState === S.PLAYING) { wantPlay = false; if (startAt > 0) { const s0 = startAt; startAt = 0; player.seekTo(s0, true); } }
   if (pState === S.CUED || pState === S.PLAYING) { rememberTitle(); lastError = null; setNotice(''); }
   syncVolume();
+  if (party.role === 'host') partySendState();
 }
 
 function rememberTitle() {
@@ -789,6 +791,141 @@ shareUi();
 loadTint(startVid.id);
 requestAnimationFrame(frame);
 
+
+/* ---------------- watch together ---------------- */
+// One person starts a room and sends the link. Everyone plays the same YouTube video from
+// YouTube itself (full quality for each person); only small control messages travel between
+// the browsers (WebRTC data channel, set up through the public PeerJS service). The host
+// controls the film; guests follow within a fraction of a second. Friends show up in their seats.
+const PEER_PREFIX = 'cinema-room-hall-';
+const party = { role: null, peer: null, conns: [], host: null, code: '', offset: 0, bestRtt: 1e9, roster: [], me: 'me', timer: 0, drift: 0 };
+const pEl = { btn: $('#btn-party'), box: $('#party'), name: $('#party-name'), start: $('#party-start'), link: $('#party-link'), copy: $('#party-copy'), status: $('#party-status'), leave: $('#party-leave'), who: $('#party-who') };
+pEl.name.value = store.get('name', '');
+pEl.name.addEventListener('change', () => { store.set('name', pEl.name.value.trim().slice(0, 24)); partySeat(); });
+const partyName = () => (pEl.name.value.trim().slice(0, 24) || 'Guest');
+function partyStatus(text) { pEl.status.textContent = text; }
+function partyUi() {
+  const on = !!party.role;
+  pEl.btn.setAttribute('aria-pressed', String(on));
+  pEl.btn.textContent = on ? 'Together: ' + Math.max(1, party.roster.length) : 'Watch together';
+  pEl.start.hidden = on; pEl.leave.hidden = !on;
+  pEl.link.hidden = pEl.copy.hidden = !on;
+  if (on) pEl.link.value = location.origin + location.pathname + '?room=' + party.code;
+  pEl.who.textContent = '';
+  for (const r of party.roster) {
+    const li = document.createElement('li');
+    li.textContent = r.name + (r.seat ? ', ' + seatLabel(r.seat.i, r.seat.j) : ', choosing a seat') + (r.host ? ' (host)' : '');
+    pEl.who.appendChild(li);
+  }
+  const mine = seat ? seat.i * COLS + seat.j : -1;
+  hall.setFriends(party.roster.filter((r) => r.id !== party.me && r.seat).map((r) => r.seat.i * COLS + r.seat.j).filter((k) => k !== mine));
+  needDraw = true;
+}
+function partyState() {
+  const S = window.YT && window.YT.PlayerState;
+  let pos = 0;
+  try { pos = ready ? player.getCurrentTime() : 0; } catch { /* not ready */ }
+  return { t: 'state', v: current ? { id: current.id, list: current.list } : null, playing: !!S && (pState === S.PLAYING || pState === S.BUFFERING), pos, at: Date.now() };
+}
+function partyBroadcast(msg) { for (const c of party.conns) if (c.open) c.send(msg); }
+function partySendState() { if (party.role === 'host' && party.conns.length) partyBroadcast(partyState()); }
+function partyRoster() {
+  if (party.role !== 'host') return;
+  party.roster = [{ id: party.me, name: partyName(), seat, host: true }].concat(party.conns.filter((c) => c.open).map((c) => ({ id: c.peer, name: c.meta.name, seat: c.meta.seat })));
+  partyBroadcast({ t: 'roster', list: party.roster });
+  partyUi();
+}
+function partySeat() { // tell the room where I sit
+  if (party.role === 'host') partyRoster();
+  else if (party.role === 'guest' && party.host && party.host.open) party.host.send({ t: 'me', name: partyName(), seat });
+}
+function partyApply(st) { // guest: follow the host
+  if (!ready || !st.v) return;
+  const S = window.YT.PlayerState;
+  const same = current && current.id === st.v.id && current.list === st.v.list;
+  if (!same) { addRecent(st.v); startVideo(st.v, st.playing && mode !== 'lobby'); return; }
+  if (mode === 'lobby') return; // sit down first; the film waits
+  const target = st.pos + (st.playing ? (Date.now() + party.offset - st.at) / 1000 : 0);
+  let cur = 0;
+  try { cur = player.getCurrentTime(); } catch { return; }
+  const d = target - cur;
+  party.drift = d;
+  if (st.playing && pState !== S.PLAYING && pState !== S.BUFFERING) player.playVideo();
+  if (!st.playing && (pState === S.PLAYING || pState === S.BUFFERING)) player.pauseVideo();
+  if (Math.abs(d) > 0.8) { player.seekTo(target + (st.playing ? 0.2 : 0), true); player.setPlaybackRate(1); }
+  else if (st.playing && Math.abs(d) > 0.15) player.setPlaybackRate(d > 0 ? 1.25 : 0.75); // catch up or wait, gently
+  else player.setPlaybackRate(1);
+  partyStatus('In the room with ' + Math.max(1, party.roster.length - 1) + ' other' + (party.roster.length - 1 === 1 ? '' : 's') + '. The host controls the film. Offset ' + d.toFixed(2) + ' s.');
+}
+function partyLeave(msg) {
+  clearInterval(party.timer);
+  try { if (party.peer) party.peer.destroy(); } catch { /* already gone */ }
+  party.role = null; party.peer = null; party.conns = []; party.host = null; party.roster = [];
+  try { if (ready) player.setPlaybackRate(1); } catch { /* no player */ }
+  partyStatus(msg || 'You left the room.');
+  partyUi();
+}
+function partyCode() { const a = 'abcdefghjkmnpqrstuvwxyz23456789'; let s = ''; for (let k = 0; k < 6; k++) s += a[Math.floor(Math.random() * a.length)]; return s; }
+function partyHost() {
+  if (!window.Peer) { partyStatus('The connection library did not load. Check the internet connection.'); return; }
+  party.code = partyCode();
+  const peer = new window.Peer(PEER_PREFIX + party.code);
+  party.peer = peer; party.role = 'host'; party.me = 'host';
+  partyStatus('Opening the room...');
+  peer.on('open', () => { partyStatus('Room is open. Send the link to your friends.'); partyRoster(); });
+  peer.on('connection', (c) => {
+    c.meta = { name: 'Guest', seat: null };
+    c.on('open', () => { party.conns.push(c); c.send(partyState()); partyRoster(); });
+    c.on('data', (m) => {
+      if (m.t === 'ping') c.send({ t: 'pong', c: m.c, h: Date.now() });
+      else if (m.t === 'me') { c.meta = { name: String(m.name || 'Guest').slice(0, 24), seat: m.seat && m.seat.i >= 0 && m.seat.i < ROWS && m.seat.j >= 0 && m.seat.j < COLS ? { i: m.seat.i | 0, j: m.seat.j | 0 } : null }; partyRoster(); }
+    });
+    c.on('close', () => { party.conns = party.conns.filter((x) => x !== c); partyRoster(); });
+  });
+  peer.on('error', (e) => partyStatus('Room problem: ' + (e.type || 'unknown') + '. Try starting the room again.'));
+  party.timer = setInterval(partySendState, 1000);
+  partyUi();
+}
+function partyJoin(code) {
+  if (!window.Peer) { partyStatus('The connection library did not load. Check the internet connection.'); return; }
+  party.code = code; party.role = 'guest';
+  const peer = new window.Peer();
+  party.peer = peer;
+  partyStatus('Joining the room...');
+  peer.on('open', (id) => {
+    party.me = id;
+    const c = peer.connect(PEER_PREFIX + code, { reliable: true });
+    party.host = c;
+    c.on('open', () => {
+      partyStatus('Connected. Pick a seat and the film follows the host.');
+      partySeat();
+      let n = 0; const ping = () => { if (c.open && n++ < 6) { c.send({ t: 'ping', c: Date.now() }); setTimeout(ping, 400); } };
+      ping();
+    });
+    c.on('data', (m) => {
+      if (m.t === 'pong') { const now = Date.now(), rtt = now - m.c; if (rtt < party.bestRtt) { party.bestRtt = rtt; party.offset = m.h - (m.c + now) / 2; } }
+      else if (m.t === 'state') partyApply(m);
+      else if (m.t === 'roster') { party.roster = m.list || []; partyUi(); }
+    });
+    c.on('close', () => partyLeave('The host closed the room.'));
+  });
+  peer.on('error', (e) => { partyLeave(e.type === 'peer-unavailable' ? 'This room does not exist any more. Ask for a new link.' : 'Could not join: ' + (e.type || 'unknown') + '.'); });
+  partyUi();
+}
+pEl.btn.addEventListener('click', () => { pEl.box.hidden = !pEl.box.hidden; pEl.btn.setAttribute('aria-expanded', String(!pEl.box.hidden)); });
+$('#party-close').addEventListener('click', () => { pEl.box.hidden = true; });
+pEl.start.addEventListener('click', partyHost);
+pEl.leave.addEventListener('click', () => partyLeave());
+pEl.copy.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(pEl.link.value); pEl.copy.textContent = 'Copied'; } catch { pEl.link.select(); pEl.copy.textContent = 'Press Ctrl+C'; }
+  setTimeout(() => { pEl.copy.textContent = 'Copy link'; }, 1600);
+});
+partyUi();
+{
+  const room = (new URLSearchParams(location.search).get('room') || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
+  if (room) { pEl.box.hidden = false; partyJoin(room); }
+}
+
 // small read-only handle used by the verification script
 window.cinema = {
   get seat() { return seat; },
@@ -798,6 +935,7 @@ window.cinema = {
   get camera() { return { x: cam.position.x, y: cam.position.y, z: cam.position.z, yaw: cam.rotation.y, pitch: cam.rotation.x, fov: cam.fov }; },
   get flying() { return !!fly; },
   get drawn() { return drawn; },
+  get party() { return { role: party.role, code: party.code, people: party.roster.length, drift: party.drift, offset: party.offset }; },
   get lastError() { return lastError; },
   get volume() { return ready ? player.getVolume() : null; },
 };

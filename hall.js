@@ -368,6 +368,26 @@ export function buildHall(scene, onChange = () => {}) {
     heads.instanceMatrix.needsUpdate = bodies.instanceMatrix.needsUpdate = true;
   }
 
+  // ---------- friends in a shared room: a head and shoulders in each friend's seat ----------
+  const friendMat = new THREE.MeshStandardMaterial({ color: 0x5a4034, roughness: 0.9 });
+  const fHeads = new THREE.InstancedMesh(headGeo, friendMat, 16), fBodies = new THREE.InstancedMesh(bodyGeo, friendMat, 16);
+  fHeads.count = fBodies.count = 0;
+  fHeads.frustumCulled = fBodies.frustumCulled = false;
+  root.add(fHeads, fBodies);
+  function setFriends(list) {
+    let n = 0;
+    for (const k of list) {
+      if (n >= 16 || !(k >= 0 && k < N)) continue;
+      const i = Math.floor(k / COLS), j = k % COLS, x = seatX(j), y = rowY(i), z = rowZ(i);
+      dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1);
+      dummy.position.set(x, y + 1.18, z + 0.1); dummy.updateMatrix(); fHeads.setMatrixAt(n, dummy.matrix);
+      dummy.position.set(x, y + 0.9, z + 0.13); dummy.updateMatrix(); fBodies.setMatrixAt(n, dummy.matrix);
+      n++;
+    }
+    fHeads.count = fBodies.count = n;
+    fHeads.instanceMatrix.needsUpdate = fBodies.instanceMatrix.needsUpdate = true;
+  }
+
   // ---------- lights ----------
   const hemi = new THREE.HemisphereLight(0xffe0bd, 0x2a1410, 3);
   scene.add(hemi);
@@ -434,7 +454,7 @@ export function buildHall(scene, onChange = () => {}) {
 
   return {
     hole, cushion, back,
-    setHouse, updateGlow, setScreenLight, setTint, setAudience,
+    setHouse, updateGlow, setScreenLight, setTint, setAudience, setFriends,
     get house() { return house; },
     get hover() { return hovered; },
     setSelected(k) { const p = selected; selected = k; if (p >= 0) paint(p); if (k >= 0) paint(k); flush(); },

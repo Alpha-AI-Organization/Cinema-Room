@@ -37,9 +37,9 @@ body.yt-direct #css-layer, body.yt-direct #css-layer * { pointer-events: auto !i
 #topbar > * { pointer-events: auto; }
 .brand { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
 .tops { display: flex; gap: 8px; }
-#btn-real, #btn-3d, #btn-yt, #btn-hall, #btn-audience { background: rgba(14, 10, 9, 0.7); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 12px; color: var(--muted); }
-#btn-real:hover, #btn-3d:hover, #btn-yt:hover, #btn-hall:hover, #btn-audience:hover { color: var(--text); border-color: rgba(255, 232, 200, 0.3); }
-#btn-real[aria-pressed="true"], #btn-3d[aria-pressed="true"], #btn-yt[aria-pressed="true"], #btn-hall[aria-pressed="true"], #btn-audience[aria-pressed="true"] { color: var(--accent); border-color: rgba(227, 160, 75, 0.5); }
+#btn-party, #btn-real, #btn-3d, #btn-yt, #btn-hall, #btn-audience { background: rgba(14, 10, 9, 0.7); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 12px; color: var(--muted); }
+#btn-party:hover, #btn-real:hover, #btn-3d:hover, #btn-yt:hover, #btn-hall:hover, #btn-audience:hover { color: var(--text); border-color: rgba(255, 232, 200, 0.3); }
+#btn-party[aria-pressed="true"], #btn-real[aria-pressed="true"], #btn-3d[aria-pressed="true"], #btn-yt[aria-pressed="true"], #btn-hall[aria-pressed="true"], #btn-audience[aria-pressed="true"] { color: var(--accent); border-color: rgba(227, 160, 75, 0.5); }
 
 #hint { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); margin: 0; font-size: 12px; color: var(--muted); background: rgba(14, 10, 9, 0.7); padding: 6px 12px; border-radius: 999px; opacity: 0; transition: opacity 0.6s; pointer-events: none !important; white-space: nowrap; }
 #hint.on { opacity: 1; }
@@ -149,3 +149,17 @@ body.ui-idle #stage { cursor: none; }
 body.sharing #b-play, body.sharing #seek, body.sharing #t-cur, body.sharing #t-dur, body.sharing #b-mute { display: none; }
 #btn-3d[hidden] { display: none; }
 #yt-wrap video.shared { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+/* watch together panel */
+#party { position: absolute; z-index: 5; right: 24px; top: 56px; width: min(360px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6); display: grid; gap: 10px; }
+#party[hidden] { display: none; }
+#party h2 { margin: 0; font-size: 18px; font-weight: 600; }
+#party .fine, #party-status { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
+#party-status { color: var(--text); }
+#party label { font-size: 12px; color: var(--muted); }
+#party input { background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: 6px; color: var(--text); padding: 9px 10px; font: inherit; font-size: 14px; width: 100%; }
+#party button { background: transparent; border: 1px solid var(--line); border-radius: 6px; color: var(--text); padding: 9px 12px; font: inherit; font-size: 14px; }
+#party button.btn-main { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+#party button[hidden], #party input[hidden] { display: none; }
+#party-who { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text); }
+#party input:focus-visible, #party button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
