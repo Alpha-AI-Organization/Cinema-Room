@@ -373,6 +373,7 @@ export function buildHall(scene) {
     hole, cushion, back,
     setHouse, updateGlow, setAudience,
     get house() { return house; },
+    get hover() { return hovered; },
     setSelected(k) { const p = selected; selected = k; if (p >= 0) paint(p); if (k >= 0) paint(k); flush(); },
     setHover(k) { if (k === hovered) return; const p = hovered; hovered = k; if (p >= 0) paint(p); if (k >= 0) paint(k); flush(); },
   };

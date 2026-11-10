@@ -12,11 +12,13 @@ const store = {
   set(k, v) { try { localStorage.setItem('cinema.' + k, JSON.stringify(v)); } catch { /* storage blocked */ } },
 };
 
+let needDraw = true; // the hall is drawn only when something changed
+
 /* ---------------- three.js setup ---------------- */
 const glCanvas = $('#gl');
-const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true, alpha: true, premultipliedAlpha: true });
+const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: (window.devicePixelRatio || 1) <= 1, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance' });
 renderer.setClearColor(0x000000, 0);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
 const scene = new THREE.Scene();
 const cam = new THREE.PerspectiveCamera(55, 1, 0.05, 80);
 const hall = buildHall(scene);
@@ -42,6 +44,7 @@ function resize() {
   const vf = 2 * Math.atan(Math.tan((80 * Math.PI) / 360) / cam.aspect) * 180 / Math.PI;
   cam.fov = clamp(vf, 55, 100);
   cam.updateProjectionMatrix();
+  needDraw = true;
 }
 addEventListener('resize', resize);
 resize();
@@ -88,7 +91,7 @@ function updateCamera(dt, t) {
   const k = 1 - Math.exp(-dt * 10);
   look.yaw += (lookT.yaw - look.yaw) * k;
   look.pitch += (lookT.pitch - look.pitch) * k;
-  const sway = reduced ? 0 : 1;
+  const sway = 0; // no idle sway: a still viewer costs no drawing
   cam.position.copy(view.pos);
   cam.position.y += sway * Math.sin(t * 0.7) * 0.012;
   cam.position.x += sway * Math.sin(t * 0.43 + 1) * 0.008;
@@ -119,11 +122,17 @@ const bPlay = $('#b-play'), bMute = $('#b-mute'), bFs = $('#b-fs'), bSeat = $('#
 bPlay.innerHTML = ICON.play; bMute.innerHTML = ICON.vol; bFs.innerHTML = ICON.fs;
 if (!document.fullscreenEnabled) bFs.hidden = true;
 
-function setNotice(text) {
+const noticeText = $('#notice-text'), noticeOpen = $('#n-open'), noticeTry = $('#n-try');
+function setNotice(text, { videoUrl = null, actions = false } = {}) {
   noticeEl.hidden = !text;
-  noticeEl.textContent = text || '';
+  noticeText.textContent = text || '';
+  noticeOpen.hidden = !(actions && videoUrl);
+  if (videoUrl) noticeOpen.href = videoUrl;
+  noticeTry.hidden = !actions;
+  noticeEl.querySelector('.acts').hidden = !actions;
   if (text) activity();
 }
+noticeTry.addEventListener('click', () => { setNotice(''); openKiosk('video'); });
 function setMsg(text) { msgEl.textContent = text || ''; }
 
 /* ---------------- kiosk (seat map + video panel) ---------------- */
@@ -170,7 +179,7 @@ function selectSeat(i, j, { instant = false, quiet = false } = {}) {
   seat = { i, j };
   store.set('seat', { i, j });
   seatBtns.forEach((b, k) => b.setAttribute('aria-pressed', String(k === i * COLS + j)));
-  hall.setSelected(i * COLS + j);
+  hall.setSelected(i * COLS + j); needDraw = true;
   if (audienceOn) hall.setAudience(true, i * COLS + j);
   bSeat.textContent = seatLabel(i, j);
   pushVol();
@@ -192,7 +201,7 @@ const bAud = $('#btn-audience');
 function applyAudience() {
   bAud.setAttribute('aria-pressed', String(audienceOn));
   bAud.textContent = 'Audience: ' + (audienceOn ? 'some' : 'empty');
-  hall.setAudience(audienceOn, seat ? seat.i * COLS + seat.j : -1);
+  hall.setAudience(audienceOn, seat ? seat.i * COLS + seat.j : -1); needDraw = true;
   store.set('audience', audienceOn);
 }
 const bHall = $('#btn-hall');
@@ -243,24 +252,34 @@ function applyVideo(p, autoplay) {
 }
 
 function startVideo(p, autoplay) {
-  current = p;
+  current = p; lastError = null; wantPlay = autoplay;
   setNotice('');
   applyVideo(p, autoplay);
 }
 
+let wantPlay = false; // a play request that arrived while a cue was still loading
 function startPlayback() {
+  wantPlay = true;
   if (ready) { try { player.playVideo(); } catch { /* player not usable */ } } else if (pending) pending.autoplay = true; else playAfterReady = true;
 }
 let playAfterReady = false;
 
+const OWNER = 'The owner of this video does not allow it to play outside youtube.com.';
 const ERR = {
   2: 'This video id is not valid. Check the link and try again.',
-  5: 'The player hit a problem with this video. Try another one.',
-  100: 'This video was not found. It may be private or removed.',
-  101: 'The owner of this video does not allow it to play outside YouTube. Try another video.',
-  150: 'The owner of this video does not allow it to play outside YouTube. Try another video.',
-  153: 'This video cannot be shown here. The owner may not allow embedding. Try another video.',
+  5: 'The player hit a problem playing this video. Try another one.',
+  100: 'YouTube says this video was not found. It may be private or removed.',
+  101: OWNER,
+  150: OWNER,
+  153: 'YouTube refused to show this video here because it could not verify the page it is embedded in. Open it on YouTube instead.',
 };
+let lastError = null;
+function watchUrl() {
+  let id = current && current.id;
+  try { const d = player && player.getVideoData && player.getVideoData(); if (d && d.video_id) id = d.video_id; } catch { /* ignore */ }
+  if (id) return 'https://www.youtube.com/watch?v=' + id;
+  return current && current.list ? 'https://www.youtube.com/playlist?list=' + current.list : 'https://www.youtube.com/';
+}
 
 function onState(e) {
   pState = e.data;
@@ -273,7 +292,9 @@ function onState(e) {
   if (lightsState === 'play') lastActive = performance.now() - 1000;
   bPlay.innerHTML = lightsState === 'play' ? ICON.pause : ICON.play;
   bPlay.setAttribute('aria-label', lightsState === 'play' ? 'Pause' : 'Play');
-  if (pState === S.CUED || pState === S.PLAYING) rememberTitle();
+  if (pState === S.CUED && wantPlay) player.playVideo();
+  if (pState === S.PLAYING) wantPlay = false;
+  if (pState === S.CUED || pState === S.PLAYING) { rememberTitle(); lastError = null; setNotice(''); }
   syncVolume();
 }
 
@@ -293,9 +314,17 @@ async function initPlayer() {
     return;
   }
   const first = pending ? pending.p : current;
-  const vars = { controls: 0, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3, fs: 0, enablejsapi: 1, origin: location.origin };
-  const cfg = {
-    width: '100%', height: '100%', playerVars: vars,
+  const q = new URLSearchParams({ enablejsapi: '1', origin: location.origin, controls: '0', disablekb: '1', modestbranding: '1', rel: '0', playsinline: '1', iv_load_policy: '3', fs: '0' });
+  const ifr = document.createElement('iframe');
+  ifr.id = 'yt';
+  ifr.title = 'YouTube video player';
+  ifr.src = first.id ? `https://www.youtube.com/embed/${first.id}?${q}` : (q.set('listType', 'playlist'), q.set('list', first.list), `https://www.youtube.com/embed/videoseries?${q}`);
+  ifr.referrerPolicy = 'strict-origin-when-cross-origin';
+  ifr.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+  ifr.setAttribute('frameborder', '0');
+  $('#yt').replaceWith(ifr);
+  pending = null;
+  player = new window.YT.Player(ifr, {
     events: {
       onReady: () => {
         ready = true;
@@ -307,15 +336,15 @@ async function initPlayer() {
       },
       onStateChange: onState,
       onError: (e) => {
-        setNotice(ERR[e.data] || 'This video could not be played.');
+        lastError = e.data; wantPlay = false;
+        console.info('YouTube player error code', e.data, 'for', watchUrl());
+        const msg = ERR[e.data] || 'This video could not be played.';
+        setNotice(`${msg} (error ${e.data})`, { videoUrl: watchUrl(), actions: [100, 101, 150, 153].includes(e.data) });
         lightsState = 'idle';
         bPlay.innerHTML = ICON.play;
       },
     },
-  };
-  if (first.id) cfg.videoId = first.id; else { vars.listType = 'playlist'; vars.list = first.list; }
-  pending = null;
-  player = new window.YT.Player('yt', cfg);
+  });
 }
 
 function togglePlay() {
@@ -553,15 +582,25 @@ function frame(now) {
   const t = now / 1000;
   house += (houseFor() - house) * (1 - Math.exp(-dt / 1.0)); // about 3 s to settle
   glow += (glowFor() - glow) * (1 - Math.exp(-dt / 0.8));
-  hall.setHouse(house);
-  hall.updateGlow(t, glow);
   updateCamera(dt, t);
   updateHover();
+  // draw only on change: camera moved, lights still fading, hover changed, or the slow glow tick
+  const sig = cam.position.x + cam.position.y * 3.1 + cam.position.z * 7.3 + cam.rotation.x * 11.7 + cam.rotation.y * 17.9 + cam.fov * 0.013;
+  const fading = Math.abs(houseFor() - house) > 0.004 || Math.abs(glowFor() - glow) > 0.004;
+  const glowTick = glow > 0.05 && now - lastGlow > 400;
+  if (sig !== lastSig || fading || glowTick || hall.hover !== lastHover) needDraw = true;
+  lastSig = sig; lastHover = hall.hover;
   const idle = lightsState === 'play' && mode === 'seated' && kiosk.hidden && now - lastActive > 3500 && !(drag && drag.moved);
   if (idle !== uiIdle) { uiIdle = idle; document.body.classList.toggle('ui-idle', idle); }
+  if (!needDraw) return;
+  needDraw = false; lastGlow = now; drawn++;
+  hall.setHouse(house);
+  hall.updateGlow(t, glow);
   renderer.render(scene, cam);
   cssRenderer.render(cssScene, cam);
 }
+let lastSig = NaN, lastHover = -2, lastGlow = 0, drawn = 0;
+document.addEventListener('visibilitychange', () => { needDraw = true; });
 
 /* ---------------- boot ---------------- */
 renderRecent();
@@ -591,5 +630,7 @@ window.cinema = {
   get playerState() { return pState; },
   get camera() { return { x: cam.position.x, y: cam.position.y, z: cam.position.z, yaw: cam.rotation.y, pitch: cam.rotation.x, fov: cam.fov }; },
   get flying() { return !!fly; },
+  get drawn() { return drawn; },
+  get lastError() { return lastError; },
   get volume() { return ready ? player.getVolume() : null; },
 };

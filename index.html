@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="icon" href="data:,">
 <title>Cinema Room</title>
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="theme-color" content="#0b0807">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
@@ -26,7 +27,7 @@
   </header>
 
   <p id="hint">Drag to look around. Double-click to recenter.</p>
-  <p id="notice" role="alert" hidden></p>
+  <div id="notice" role="alert" hidden><span id="notice-text"></span><span class="acts"><a id="n-open" class="btn" href="https://www.youtube.com/" target="_blank" rel="noopener noreferrer" hidden>Open on YouTube</a><button id="n-try" class="btn" type="button" hidden>Try another video</button></span></div>
 
   <section id="kiosk" data-mode="lobby" role="dialog" aria-labelledby="kiosk-title">
     <button class="close" type="button" id="kiosk-close" aria-label="Close">

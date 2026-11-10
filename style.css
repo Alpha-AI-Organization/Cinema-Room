@@ -42,7 +42,12 @@ button { cursor: pointer; }
 #hint.on { opacity: 1; }
 body[data-mode="lobby"] #hint { display: none; }
 
-#notice { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); margin: 0; max-width: min(560px, calc(100% - 32px)); background: #2a120e; border: 1px solid rgba(227, 120, 75, 0.55); color: #ffd9c4; padding: 10px 14px; border-radius: 6px; font-size: 14px; line-height: 1.4; z-index: 4; }
+#notice { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); margin: 0; max-width: min(560px, calc(100% - 32px)); background: #2a120e; border: 1px solid rgba(227, 120, 75, 0.55); color: #ffd9c4; padding: 12px 14px; border-radius: 6px; font-size: 14px; line-height: 1.4; z-index: 4; }
+#notice .acts { display: flex; gap: 8px; margin-top: 10px; }
+#notice .acts[hidden] { display: none; }
+#notice .btn { background: transparent; color: var(--text); border: 1px solid rgba(255, 232, 200, 0.3); border-radius: 6px; padding: 7px 12px; font-size: 13px; text-decoration: none; }
+#notice .btn:hover { border-color: var(--accent); }
+#notice a.btn { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 
 /* kiosk panel */
 #kiosk { z-index: 3; position: absolute; right: 24px; top: 50%; transform: translateY(-50%); width: 430px; max-height: calc(100% - 48px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 22px 22px 20px; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6); }

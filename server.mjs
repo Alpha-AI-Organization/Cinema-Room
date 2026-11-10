@@ -29,6 +29,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, {
       'Content-Type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
       'Content-Length': st.size, 'Cache-Control': 'no-cache',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
     });
     if (req.method === 'HEAD') res.end(); else fs.createReadStream(file).pipe(res);
   });
