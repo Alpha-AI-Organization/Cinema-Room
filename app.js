@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/addons/CSS3DRenderer.js';
-import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js?v=10';
-import { parseYouTube } from './parse.js?v=10';
+import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js?v=11';
+import { parseYouTube } from './parse.js?v=11';
 
 // cinema.localhost is the one address where everything works: YouTube accepts it for music videos
 // (it refuses bare 127.0.0.1) and the browser treats it as secure, which tab sharing needs.
@@ -54,6 +54,13 @@ addEventListener('resize', resize);
 resize();
 
 /* ---------------- camera rig ---------------- */
+// 'seat': the view from the chosen seat. 'centre': straight in front of the screen, any seat.
+// 'flat': only the screen, filling the window; the 3D hall is not drawn at all (slow computers).
+let viewMode = store.get('viewMode', 'seat');
+const fitDist = (margin) => {
+  const th = Math.tan((cam.fov * Math.PI) / 360);
+  return Math.max(SCREEN.h / 2 / th, SCREEN.w / 2 / (th * cam.aspect)) * margin;
+};
 const rowLetter = (i) => String.fromCharCode(65 + i);
 function poseLook(pos, target) {
   const d = target.clone().sub(pos);
@@ -100,6 +107,10 @@ function updateCamera(dt, t) {
   cam.position.y += sway * Math.sin(t * 0.7) * 0.012;
   cam.position.x += sway * Math.sin(t * 0.43 + 1) * 0.008;
   cam.rotation.set(view.pitch + look.pitch + sway * Math.sin(t * 0.55) * 0.0035, view.yaw + look.yaw + sway * Math.sin(t * 0.37) * 0.0025, 0, 'YXZ');
+  if (viewMode === 'flat') { cam.position.set(0, SCREEN.cy, fitDist(1)); cam.rotation.set(0, 0, 0, 'YXZ'); }
+  else if (viewMode === 'centre' && typeof mode !== 'undefined' && mode === 'seated' && !fly) {
+    cam.position.set(0, SCREEN.cy, fitDist(1.12)); cam.rotation.set(look.pitch, look.yaw, 0, 'YXZ');
+  }
 }
 
 /* ---------------- UI state ---------------- */
@@ -248,7 +259,6 @@ function shareUi() {
   bReal.setAttribute('aria-pressed', String(on));
   bReal.textContent = on ? (share.remote ? 'The host is showing a screen' : 'Stop showing') : 'Show a tab or window';
   bReal.disabled = on && share.remote;
-  b3d.hidden = !on || !share.ctx;
   b3d.setAttribute('aria-pressed', String(share.on3d));
   b3d.textContent = '3D sound: ' + (share.on3d ? 'on' : 'off');
   document.body.classList.toggle('sharing', on);
@@ -256,7 +266,7 @@ function shareUi() {
   document.body.classList.toggle('yt-direct', ytDirect && !on);
 }
 function sampleShare() {
-  const v = share.video; if (!v || !v.videoWidth) return;
+  const v = share.video; if (!v || !v.videoWidth || viewMode === 'flat') return;
   try { sCtx.drawImage(v, 0, 0, 6, 4); } catch { return; }
   const d = sCtx.getImageData(0, 0, 6, 4).data, cols = [];
   for (let z = 0; z < 3; z++) {
@@ -332,7 +342,7 @@ async function startShare() {
   let stream;
   try {
     stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 30 },
+      video: { frameRate: { ideal: 30 }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: { suppressLocalAudioPlayback: true, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       selfBrowserSurface: 'exclude', surfaceSwitching: 'include', systemAudio: 'include',
     });
@@ -360,7 +370,58 @@ async function mountShare(stream, remote) {
   setNotice(share.ctx || remote ? '' : 'No sound was shared, so the sound still comes from the other tab. To get 3D sound: stop, share a browser tab again and turn on "Also share tab audio".');
 }
 bReal.addEventListener('click', startShare);
-b3d.addEventListener('click', () => { share.on3d = !share.on3d; store.set('share3d', share.on3d); shareMix(); shareUi(); });
+b3d.addEventListener('click', () => {
+  share.on3d = !share.on3d; store.set('share3d', share.on3d); shareMix(); shareUi();
+  if (!share.ctx) setNotice('3D sound works on a shown tab: press "Show a tab or window", pick a browser tab and turn on "Also share tab audio". The browser does not let a page change the sound of the YouTube player.');
+});
+
+/* ---------------- view and curve buttons ---------------- */
+const bView = $('#btn-view'), bCurve = $('#btn-curve');
+const VIEW_NAMES = { seat: 'View: my seat', centre: 'View: centre', flat: 'View: screen only (light)' };
+function applyView() {
+  bView.textContent = VIEW_NAMES[viewMode];
+  document.body.classList.toggle('flat', viewMode === 'flat');
+  needDraw = true; poseDirty = true;
+}
+bView.addEventListener('click', () => {
+  viewMode = { seat: 'centre', centre: 'flat', flat: 'seat' }[viewMode] || 'seat';
+  store.set('viewMode', viewMode); applyView();
+});
+// Curve: an iframe cannot be bent, so the picture is warped the way a curved screen looks from
+// the middle: "in" makes the sides taller than the middle, "out" the other way round.
+let curve = store.get('curve', 'off');
+{
+  const K = 0.09, maxOff = 360 * (1 / (1 - K) - 1), SC = Math.ceil(maxOff * 2.1);
+  const map = (inward) => {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const g = c.getContext('2d'), img = g.createImageData(256, 256);
+    for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+      const u = (x + 0.5) / 256, v = (y + 0.5) / 256, e = (2 * u - 1) ** 2;
+      const s = inward ? 1 - K * (1 - e) : 1 - K * e;
+      const off = ((v - 0.5) / s - (v - 0.5)) * 720;
+      const k = (y * 256 + x) * 4;
+      img.data[k] = 128; img.data[k + 1] = Math.round(127.5 + (off / SC) * 255); img.data[k + 2] = 128; img.data[k + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return c.toDataURL('image/png');
+  };
+  const f = (id, inward) => '<filter id="' + id + '" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB">'
+    + '<feImage href="' + map(inward) + '" preserveAspectRatio="none" result="m"/>'
+    + '<feDisplacementMap in="SourceGraphic" in2="m" scale="' + SC + '" xChannelSelector="R" yChannelSelector="G"/></filter>';
+  const holder = document.createElement('div');
+  holder.innerHTML = '<svg width="0" height="0" style="position:absolute" aria-hidden="true">' + f('curve-in', true) + f('curve-out', false) + '</svg>';
+  document.body.appendChild(holder.firstChild);
+}
+function applyCurve() {
+  bCurve.textContent = { off: 'Curve: off', in: 'Curve: in', out: 'Curve: out' }[curve];
+  ytWrap.style.filter = curve === 'off' ? '' : 'url(#curve-' + curve + ')';
+  needDraw = true;
+}
+bCurve.addEventListener('click', () => {
+  curve = { off: 'in', in: 'out', out: 'off' }[curve] || 'off';
+  store.set('curve', curve); applyCurve();
+});
+applyView(); applyCurve();
 
 // tint for the simple glow: the average colour of the video thumbnail
 function loadTint(id) {
@@ -774,9 +835,11 @@ function frame(now) {
   if (idle !== uiIdle) { uiIdle = idle; document.body.classList.toggle('ui-idle', idle); }
   if (!needDraw) return;
   needDraw = false; lastGlow = now; drawn++;
-  hall.setHouse(house);
-  if (realCols) hall.setScreenLight(realCols, glow); else hall.updateGlow(t, glow);
-  renderer.render(scene, cam);
+  if (viewMode !== 'flat') {
+    hall.setHouse(house);
+    if (realCols) hall.setScreenLight(realCols, glow); else hall.updateGlow(t, glow);
+    renderer.render(scene, cam);
+  }
   if (poseDirty) { poseDirty = false; sendPose(); }
   cssRenderer.render(cssScene, cam);
 }
@@ -846,9 +909,20 @@ function partyState() {
   try { pos = ready ? player.getCurrentTime() : 0; } catch { /* not ready */ }
   return { t: 'state', sharing: !!share.stream && !share.remote, v: current ? { id: current.id, list: current.list } : null, playing: !!S && (pState === S.PLAYING || pState === S.BUFFERING), pos, at: Date.now() };
 }
+// ask WebRTC for a high video bitrate from the first second, and for stereo film sound
+function tuneSdp(sdp) {
+  return sdp.split(/(?=^m=)/m).map((p) => {
+    if (p.startsWith('m=video')) return p.replace(/^(a=fmtp:\d+ (?!apt=)[^\r\n]*)/gm, '$1;x-google-start-bitrate=6000;x-google-min-bitrate=2500;x-google-max-bitrate=14000');
+    if (p.startsWith('m=audio')) {
+      const m = p.match(/a=rtpmap:(\d+) opus/i);
+      if (m) return p.replace(new RegExp('^(a=fmtp:' + m[1] + ' [^\\r\\n]*)', 'm'), '$1;stereo=1;sprop-stereo=1;maxaveragebitrate=256000');
+    }
+    return p;
+  }).join('');
+}
 function partyCall(id) {
   if (!share.stream || share.remote || !party.peer) return;
-  const call = party.peer.call(id, share.stream);
+  const call = party.peer.call(id, share.stream, { sdpTransform: tuneSdp });
   if (!call) return;
   share.calls.push(call);
   const tune = () => {
@@ -858,7 +932,7 @@ function partyCall(id) {
       snd.track.contentHint = 'motion';
       const p = snd.getParameters();
       if (!p.encodings || !p.encodings.length) p.encodings = [{}];
-      p.encodings[0].maxBitrate = 8000000; p.encodings[0].maxFramerate = 30;
+      p.encodings[0].maxBitrate = 14000000; p.encodings[0].networkPriority = 'high'; p.degradationPreference = 'maintain-resolution'; p.encodings[0].maxFramerate = 30;
       snd.setParameters(p).catch(() => {});
     }
   };
@@ -937,7 +1011,7 @@ function partyJoin(code) {
   party.peer = peer;
   partyStatus('Joining the room...');
   peer.on('call', (call) => { // the host sends a live screen
-    call.answer();
+    call.answer(undefined, { sdpTransform: tuneSdp });
     call.on('stream', (remote) => { if (share.stream !== remote) mountShare(remote, true); });
     call.on('close', () => { if (share.remote && share.stream) stopShare(); });
   });
@@ -987,6 +1061,7 @@ window.cinema = {
   get flying() { return !!fly; },
   get drawn() { return drawn; },
   get sharing() { return { on: !!share.stream, remote: share.remote, w: share.video ? share.video.videoWidth : 0, sound: !!share.ctx }; },
+  get view() { return { mode: viewMode, curve }; },
   get party() { return { role: party.role, code: party.code, people: party.roster.length, drift: party.drift, offset: party.offset }; },
   get lastError() { return lastError; },
   get volume() { return ready ? player.getVolume() : null; },
