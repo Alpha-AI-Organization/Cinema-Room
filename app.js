@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/addons/CSS3DRenderer.js';
-import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js?v=9';
-import { parseYouTube } from './parse.js?v=9';
+import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js?v=10';
+import { parseYouTube } from './parse.js?v=10';
 
 // cinema.localhost is the one address where everything works: YouTube accepts it for music videos
 // (it refuses bare 127.0.0.1) and the browser treats it as secure, which tab sharing needs.
@@ -197,7 +197,7 @@ function selectSeat(i, j, { instant = false, quiet = false } = {}) {
     document.activeElement?.blur?.();
     showHint();
   }
-  if (wasLobby && !quiet) startPlayback();
+  if (wasLobby && !quiet && party.role !== 'guest') startPlayback(); // a guest waits for the host
 }
 
 /* ---------------- audience ---------------- */
@@ -219,6 +219,7 @@ function applyHall() {
 bHall.addEventListener('click', () => { hallSound = !hallSound; applyHall(); });
 // "YouTube menu": clicks go straight to the YouTube player on the screen (gear menu: quality, speed, subtitles)
 const bYt = $('#btn-yt');
+let partyReady = false; // set once the watch together panel exists
 let sharingNow = false; // true while a tab or window is shown on the screen
 let ytDirect = store.get('ytDirect', true); // by default the mouse works the YouTube player on the screen
 function applyYt() {
@@ -251,6 +252,7 @@ function shareUi() {
   b3d.setAttribute('aria-pressed', String(share.on3d));
   b3d.textContent = '3D sound: ' + (share.on3d ? 'on' : 'off');
   document.body.classList.toggle('sharing', on);
+  if (partyReady) partyUi();
   document.body.classList.toggle('yt-direct', ytDirect && !on);
 }
 function sampleShare() {
@@ -814,7 +816,7 @@ requestAnimationFrame(frame);
 // controls the film; guests follow within a fraction of a second. Friends show up in their seats.
 const PEER_PREFIX = 'cinema-room-hall-';
 const party = { role: null, peer: null, conns: [], host: null, code: '', offset: 0, bestRtt: 1e9, roster: [], me: 'me', timer: 0, drift: 0 };
-const pEl = { btn: $('#btn-party'), box: $('#party'), name: $('#party-name'), start: $('#party-start'), link: $('#party-link'), copy: $('#party-copy'), status: $('#party-status'), leave: $('#party-leave'), who: $('#party-who') };
+const pEl = { btn: $('#btn-party'), box: $('#party'), name: $('#party-name'), start: $('#party-start'), link: $('#party-link'), copy: $('#party-copy'), status: $('#party-status'), share: $('#party-share'), leave: $('#party-leave'), who: $('#party-who') };
 pEl.name.value = store.get('name', '');
 pEl.name.addEventListener('change', () => { store.set('name', pEl.name.value.trim().slice(0, 24)); partySeat(); });
 const partyName = () => (pEl.name.value.trim().slice(0, 24) || 'Guest');
@@ -824,6 +826,8 @@ function partyUi() {
   pEl.btn.setAttribute('aria-pressed', String(on));
   pEl.btn.textContent = on ? 'Together: ' + Math.max(1, party.roster.length) : 'Watch together';
   pEl.start.hidden = on; pEl.leave.hidden = !on;
+  pEl.share.hidden = party.role !== 'host' || !canShare;
+  pEl.share.textContent = share.stream && !share.remote ? 'Stop sharing my screen' : 'Share my screen to the room';
   pEl.link.hidden = pEl.copy.hidden = !on;
   if (on) pEl.link.value = location.origin + location.pathname + '?room=' + party.code;
   pEl.who.textContent = '';
@@ -912,7 +916,7 @@ function partyHost() {
   const peer = new window.Peer(PEER_PREFIX + party.code);
   party.peer = peer; party.role = 'host'; party.me = 'host';
   partyStatus('Opening the room...');
-  peer.on('open', () => { partyStatus('Room is open. Send the link to your friends.'); partyRoster(); });
+  peer.on('open', () => { partyStatus('Room is open. Send the link to your friends, then press "Share my screen to the room".'); partyRoster(); });
   peer.on('connection', (c) => {
     c.meta = { name: 'Guest', seat: null };
     c.on('open', () => { party.conns.push(c); c.send(partyState()); partyRoster(); partyCall(c.peer); });
@@ -942,7 +946,7 @@ function partyJoin(code) {
     const c = peer.connect(PEER_PREFIX + code, { reliable: true });
     party.host = c;
     c.on('open', () => {
-      partyStatus('Connected. Pick a seat and the film follows the host.');
+      partyStatus('Connected. Pick a seat. You will see what the host shares.');
       partySeat();
       let n = 0; const ping = () => { if (c.open && n++ < 6) { c.send({ t: 'ping', c: Date.now() }); setTimeout(ping, 400); } };
       ping();
@@ -960,11 +964,13 @@ function partyJoin(code) {
 pEl.btn.addEventListener('click', () => { pEl.box.hidden = !pEl.box.hidden; pEl.btn.setAttribute('aria-expanded', String(!pEl.box.hidden)); });
 $('#party-close').addEventListener('click', () => { pEl.box.hidden = true; });
 pEl.start.addEventListener('click', partyHost);
+pEl.share.addEventListener('click', () => { startShare(); });
 pEl.leave.addEventListener('click', () => partyLeave());
 pEl.copy.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(pEl.link.value); pEl.copy.textContent = 'Copied'; } catch { pEl.link.select(); pEl.copy.textContent = 'Press Ctrl+C'; }
   setTimeout(() => { pEl.copy.textContent = 'Copy link'; }, 1600);
 });
+partyReady = true;
 partyUi();
 {
   const room = (new URLSearchParams(location.search).get('room') || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
