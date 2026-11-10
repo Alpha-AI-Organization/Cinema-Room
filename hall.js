@@ -52,7 +52,35 @@ function scaleUV(geo, u, v) {
   return geo;
 }
 
-export function buildHall(scene) {
+// a box with rounded edges, built at its real size (so instances need no stretching)
+function roundedBox(w, h, d, rTop, rBottom, bevel = 0.025) {
+  const x = w / 2 - bevel, y = h / 2 - bevel, rt = Math.min(rTop, x, y), rb = Math.min(rBottom, x, y);
+  const s = new THREE.Shape();
+  s.moveTo(-x + rb, -y);
+  s.lineTo(x - rb, -y); s.quadraticCurveTo(x, -y, x, -y + rb);
+  s.lineTo(x, y - rt); s.quadraticCurveTo(x, y, x - rt, y);
+  s.lineTo(-x + rt, y); s.quadraticCurveTo(-x, y, -x, y - rt);
+  s.lineTo(-x, -y + rb); s.quadraticCurveTo(-x, -y, -x + rb, -y);
+  const g = new THREE.ExtrudeGeometry(s, { depth: Math.max(0.001, d - 2 * bevel), bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3, curveSegments: 8 });
+  g.center();
+  return g;
+}
+
+export function buildHall(scene, onChange = () => {}) {
+  // scanned materials: colour, normal and roughness maps, 1k JPG, loaded once
+  const loader = new THREE.TextureLoader();
+  const texOf = (id, kind, ru, rv) => {
+    const t = loader.load('assets/tex/' + id + '_' + kind + '.jpg', onChange);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(ru, rv); t.anisotropy = 8;
+    if (kind === 'col') t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  };
+  const pbr = (id, ru, rv, colour = true) => {
+    const o = { normalMap: texOf(id, 'nor', ru, rv), roughnessMap: texOf(id, 'rough', ru, rv), roughness: 1 };
+    if (colour) o.map = texOf(id, 'col', ru, rv);
+    return o;
+  };
+
   const rnd = mulberry32(11);
   const dummy = new THREE.Object3D();
   scene.fog = new THREE.FogExp2(0x140c09, 0.02);
@@ -102,16 +130,21 @@ export function buildHall(scene) {
   }, [1, 1], true);
 
   // ---------- materials ----------
-  const carpetMat = new THREE.MeshStandardMaterial({ map: carpetTex, roughness: 1, color: 0xffffff });
-  const wallMat = new THREE.MeshStandardMaterial({ map: plasterTex, roughness: 0.95, color: 0xffffff });
+  const carpetMat = new THREE.MeshStandardMaterial({ ...pbr('dirty_carpet', 1.2, 1.2), color: 0x8a3a38 });
+  const wallMat = new THREE.MeshStandardMaterial({ ...pbr('painted_plaster_wall', 1, 1), color: 0x7d6a5e });
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x070504, roughness: 1 });
-  const panelMat = new THREE.MeshStandardMaterial({ map: fabricTex, color: 0x4a3128, roughness: 1 });
+  const panelMat = new THREE.MeshStandardMaterial({ ...pbr('wool_boucle', 1, 4, false), color: 0x4a3128 });
   const ceilMat = new THREE.MeshStandardMaterial({ color: 0x2b211c, roughness: 1 });
-  const curtainMat = new THREE.MeshStandardMaterial({
-    map: curtainTex, color: 0x7d141c, roughness: 0.8, side: THREE.DoubleSide,
+  const curtainMat = new THREE.MeshPhysicalMaterial({
+    ...pbr('velour_velvet', 3, 6, false), color: 0x7d141c, side: THREE.DoubleSide,
+    sheen: 1, sheenColor: new THREE.Color(0xff5a4a), sheenRoughness: 0.45,
   });
-  const seatMat = new THREE.MeshStandardMaterial({ map: fabricTex, color: 0xffffff, roughness: 0.92 });
-  const seatBaseMat = new THREE.MeshStandardMaterial({ color: 0x120c0a, roughness: 0.8 });
+  const seatMat = new THREE.MeshPhysicalMaterial({
+    ...pbr('velour_velvet', 2.2, 2.2, false), color: 0xffffff,
+    sheen: 1, sheenColor: new THREE.Color(0xff6a5a), sheenRoughness: 0.5,
+  });
+  const armMat = new THREE.MeshStandardMaterial({ ...pbr('dark_wood', 1, 3), color: 0x8a6a50 });
+  const seatBaseMat = new THREE.MeshStandardMaterial({ ...pbr('fabric_leather_02', 1, 1, false), color: 0x15100e });
 
   const root = new THREE.Group();
   scene.add(root);
@@ -205,7 +238,7 @@ export function buildHall(scene) {
   }
   root.add(panels);
   // wood trim above and below the panel band
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0x2a1a12, roughness: 0.7 });
+  const trimMat = new THREE.MeshStandardMaterial({ ...pbr('dark_wood', 0.5, 8), color: 0x6a4a36 });
   for (const side of [-1, 1]) {
     add(new THREE.BoxGeometry(0.16, 0.14, BACK - 0.4), trimMat, side * (W - 0.07), 8.2, BACK / 2 + 0.2);
     add(new THREE.BoxGeometry(0.16, 0.14, BACK - 0.4), trimMat, side * (W - 0.07), 2.2, BACK / 2 + 0.2);
@@ -262,9 +295,11 @@ export function buildHall(scene) {
   // ---------- seats ----------
   const N = ROWS * COLS;
   const unit = new THREE.BoxGeometry(1, 1, 1);
-  const cushion = new THREE.InstancedMesh(unit, seatMat, N);
-  const back = new THREE.InstancedMesh(unit, seatMat, N);
-  const arms = new THREE.InstancedMesh(unit, seatMat, N * 2);
+  // padded shapes: a tall back with a round top, a thick cushion, wooden armrests with cup holders
+  const cushion = new THREE.InstancedMesh(roundedBox(0.5, 0.16, 0.54, 0.07, 0.05, 0.035), seatMat, N);
+  const back = new THREE.InstancedMesh(roundedBox(0.52, 0.74, 0.15, 0.2, 0.05, 0.045), seatMat, N);
+  const arms = new THREE.InstancedMesh(roundedBox(0.075, 0.07, 0.54, 0.02, 0.02, 0.015), armMat, N * 2);
+  const cups = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.045, 0.04, 0.05, 16, 1, true), seatBaseMat, N * 2);
   const bases = new THREE.InstancedMesh(unit, seatBaseMat, N);
   const place = (mesh, k, x, y, z, sx, sy, sz, rx = 0) => {
     dummy.position.set(x, y, z); dummy.rotation.set(rx, 0, 0); dummy.scale.set(sx, sy, sz);
@@ -272,10 +307,13 @@ export function buildHall(scene) {
   };
   for (let i = 0; i < ROWS; i++) for (let j = 0; j < COLS; j++) {
     const k = i * COLS + j, x = seatX(j), y = rowY(i), z = rowZ(i);
-    place(cushion, k, x, y + 0.46, z - 0.02, 0.5, 0.14, 0.54, -0.04);
-    place(back, k, x, y + 0.84, z + 0.28, 0.5, 0.68, 0.12, 0.14);
-    place(arms, k * 2, x - 0.285, y + 0.66, z + 0.02, 0.07, 0.09, 0.52);
-    place(arms, k * 2 + 1, x + 0.285, y + 0.66, z + 0.02, 0.07, 0.09, 0.52);
+    // the cushion shape is built upright (thin in Y after the turn below), so lay it flat
+    place(cushion, k, x, y + 0.46, z - 0.02, 1, 1, 1, -0.04);
+    place(back, k, x, y + 0.87, z + 0.29, 1, 1, 1, 0.14);
+    place(arms, k * 2, x - 0.29, y + 0.67, z + 0.02, 1, 1, 1);
+    place(arms, k * 2 + 1, x + 0.29, y + 0.67, z + 0.02, 1, 1, 1);
+    place(cups, k * 2, x - 0.29, y + 0.72, z - 0.2, 1, 1, 1);
+    place(cups, k * 2 + 1, x + 0.29, y + 0.72, z - 0.2, 1, 1, 1);
     place(bases, k, x, y + 0.21, z + 0.04, 0.3, 0.42, 0.34);
   }
   const baseCol = new THREE.Color(0x8c2230);
@@ -288,8 +326,7 @@ export function buildHall(scene) {
     seatCols.push(c);
     cushion.setColorAt(k, c); back.setColorAt(k, c);
   }
-  for (let k = 0; k < N * 2; k++) arms.setColorAt(k, new THREE.Color(0x4a1a1e));
-  [cushion, back, arms, bases].forEach((m) => root.add(m));
+  [cushion, back, arms, cups, bases].forEach((m) => root.add(m));
 
   let selected = -1, hovered = -1;
   const paint = (k) => {

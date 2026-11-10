@@ -25,7 +25,7 @@ renderer.setClearColor(0x000000, 0);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
 const scene = new THREE.Scene();
 const cam = new THREE.PerspectiveCamera(55, 1, 0.05, 80);
-const hall = buildHall(scene);
+const hall = buildHall(scene, () => { needDraw = true; });
 
 const cssRenderer = new CSS3DRenderer();
 $('#css-layer').appendChild(cssRenderer.domElement);
