@@ -212,6 +212,16 @@ function applyHall() {
   pushVol();
 }
 bHall.addEventListener('click', () => { hallSound = !hallSound; applyHall(); });
+// "YouTube menu": clicks go straight to the YouTube player on the screen (gear menu: quality, speed, subtitles)
+const bYt = $('#btn-yt');
+let ytDirect = false;
+function applyYt() {
+  bYt.setAttribute('aria-pressed', String(ytDirect));
+  bYt.textContent = 'YouTube menu: ' + (ytDirect ? 'on' : 'off');
+  document.body.classList.toggle('yt-direct', ytDirect);
+  if (ytDirect) recenter();
+}
+bYt.addEventListener('click', () => { ytDirect = !ytDirect; applyYt(); });
 bAud.addEventListener('click', () => { audienceOn = !audienceOn; applyAudience(); });
 
 /* ---------------- hint ---------------- */
@@ -257,6 +267,7 @@ function startVideo(p, autoplay) {
   applyVideo(p, autoplay);
 }
 
+let startAt = 0; // seconds, from a ?t= link
 let wantPlay = false; // a play request that arrived while a cue was still loading
 function startPlayback() {
   wantPlay = true;
@@ -293,7 +304,7 @@ function onState(e) {
   bPlay.innerHTML = lightsState === 'play' ? ICON.pause : ICON.play;
   bPlay.setAttribute('aria-label', lightsState === 'play' ? 'Pause' : 'Play');
   if (pState === S.CUED && wantPlay) player.playVideo();
-  if (pState === S.PLAYING) wantPlay = false;
+  if (pState === S.PLAYING) { wantPlay = false; if (startAt > 0) { const s0 = startAt; startAt = 0; player.seekTo(s0, true); } }
   if (pState === S.CUED || pState === S.PLAYING) { rememberTitle(); lastError = null; setNotice(''); }
   syncVolume();
 }
@@ -314,7 +325,7 @@ async function initPlayer() {
     return;
   }
   const first = pending ? pending.p : current;
-  const q = new URLSearchParams({ enablejsapi: '1', origin: location.origin, controls: '0', disablekb: '1', modestbranding: '1', rel: '0', playsinline: '1', iv_load_policy: '3', fs: '0' });
+  const q = new URLSearchParams({ enablejsapi: '1', origin: location.origin, controls: '1', disablekb: '1', modestbranding: '1', rel: '0', playsinline: '1', iv_load_policy: '3', fs: '0' });
   const ifr = document.createElement('iframe');
   ifr.id = 'yt';
   ifr.title = 'YouTube video player';
@@ -564,7 +575,7 @@ addEventListener('keydown', (e) => {
     case 'f': toggleFs(); break;
     case 's': if (mode === 'seated') (kiosk.hidden || kioskView !== 'seats' ? openKiosk('seats') : closeKiosk()); break;
     case 'c': recenter(); break;
-    case 'Escape': closeKiosk(); break;
+    case 'Escape': if (ytDirect) { ytDirect = false; applyYt(); } closeKiosk(); break;
     default:
   }
 });
@@ -596,7 +607,7 @@ function frame(now) {
   const glowTick = glow > 0.05 && now - lastGlow > 400;
   if (sig !== lastSig || fading || glowTick || hall.hover !== lastHover) needDraw = true;
   lastSig = sig; lastHover = hall.hover;
-  const idle = lightsState === 'play' && mode === 'seated' && kiosk.hidden && now - lastActive > 3500 && !(drag && drag.moved);
+  const idle = !ytDirect && lightsState === 'play' && mode === 'seated' && kiosk.hidden && now - lastActive > 3500 && !(drag && drag.moved);
   if (idle !== uiIdle) { uiIdle = idle; document.body.classList.toggle('ui-idle', idle); }
   if (!needDraw) return;
   needDraw = false; lastGlow = now; drawn++;
@@ -611,6 +622,7 @@ document.addEventListener('visibilitychange', () => { needDraw = true; });
 /* ---------------- boot ---------------- */
 renderRecent();
 const urlVid = parseYouTube(new URLSearchParams(location.search).get('v') || '');
+startAt = Math.max(0, parseInt(new URLSearchParams(location.search).get('t') || '0', 10) || 0);
 if (urlVid) { addRecent(urlVid); history.replaceState(null, '', location.pathname); }
 const startVid = recent[0] ? { id: recent[0].id, list: recent[0].list } : DEFAULT_VIDEO;
 current = startVid;

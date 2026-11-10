@@ -2,11 +2,11 @@ import * as THREE from 'three';
 
 export const ROWS = 8;
 export const COLS = 12;
-export const SCREEN = { w: 8, h: 4.5, cy: 2.8 };
+export const SCREEN = { w: 9.6, h: 5.4, cy: 3.35 };
 const PX = 0.6;        // seat pitch
 const AISLE = 0.34;    // extra half-gap at the centre aisle
 const RP = 1.2;        // row pitch
-const Z0 = 7.2;        // z of row A
+const Z0 = 6.4;        // z of row A
 const W = 5.4;         // half hall width
 const HH = 8;          // wall height
 const BACK = 17.2;     // back wall z
