@@ -32,8 +32,8 @@ exit /b 1
 
 :open
 rem Open by host name, not by bare IP: YouTube refuses many music videos on 127.0.0.1 (error 150).
-rem cinema.localtest.me is a public name that points to 127.0.0.1 (this computer).
-start "" "http://cinema.localtest.me:41731/"
+rem cinema.localhost always points to this computer, and the browser treats it as a secure address.
+start "" "http://cinema.localhost:41731/"
 exit /b 0
 
 :up

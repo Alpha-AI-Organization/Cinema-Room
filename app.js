@@ -3,6 +3,10 @@ import { CSS3DRenderer, CSS3DObject } from 'three/addons/CSS3DRenderer.js';
 import { buildHall, ROWS, COLS, SCREEN, eyeFor, seatLabel } from './hall.js';
 import { parseYouTube } from './parse.js';
 
+// cinema.localhost is the one address where everything works: YouTube accepts it for music videos
+// (it refuses bare 127.0.0.1) and the browser treats it as secure, which tab sharing needs.
+if (location.hostname === 'cinema.localtest.me') location.replace('http://cinema.localhost:' + location.port + '/' + location.search);
+
 const DEFAULT_VIDEO = { id: 'aqz-KE-bpKQ', list: null };
 const $ = (s) => document.querySelector(s);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -214,49 +218,131 @@ function applyHall() {
 bHall.addEventListener('click', () => { hallSound = !hallSound; applyHall(); });
 // "YouTube menu": clicks go straight to the YouTube player on the screen (gear menu: quality, speed, subtitles)
 const bYt = $('#btn-yt');
+let sharingNow = false; // true while a tab or window is shown on the screen
 let ytDirect = store.get('ytDirect', true); // by default the mouse works the YouTube player on the screen
 function applyYt() {
   bYt.setAttribute('aria-pressed', String(ytDirect));
   bYt.textContent = ytDirect ? 'Mouse on screen: YouTube' : 'Mouse on screen: look around';
-  document.body.classList.toggle('yt-direct', ytDirect);
+  document.body.classList.toggle('yt-direct', ytDirect && !sharingNow);
 }
 applyYt();
 bYt.addEventListener('click', () => { ytDirect = !ytDirect; store.set('ytDirect', ytDirect); applyYt(); });
 
-/* ---------------- sound booth link: real picture light and 3D sound ---------------- */
-// The booth window captures this tab (with permission). It sends back the real colours of the
-// film picture, and it needs to know where the viewer sits and looks for the 3D sound.
-const chan = 'BroadcastChannel' in window ? new BroadcastChannel('cinema-room') : null;
-const bReal = $('#btn-real');
-let realCols = null, realAt = 0, boothOn = false, poseDirty = true;
-function setBooth(on) {
-  boothOn = on; if (!on) realCols = null;
+/* ---------------- any tab or window on the screen ---------------- */
+// The browser lets the user share a tab, a window or the whole display. The picture goes on the
+// cinema screen. Because the page owns that picture and sound, the hall light follows the real
+// picture and the sound is real 3D audio coming from the screen. Nothing is recorded or sent.
+const bReal = $('#btn-real'), b3d = $('#btn-3d');
+let realCols = null, realAt = 0, poseDirty = true;
+const share = { stream: null, video: null, ctx: null, nodes: null, timer: 0, on3d: store.get('share3d', true) };
+const sCv = document.createElement('canvas'); sCv.width = 6; sCv.height = 4;
+const sCtx = sCv.getContext('2d', { willReadFrequently: true });
+const canShare = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+bReal.hidden = !canShare;
+
+function shareUi() {
+  const on = !!share.stream;
+  sharingNow = on;
   bReal.setAttribute('aria-pressed', String(on));
-  bReal.textContent = on ? '3D sound and real light: on' : '3D sound and real light';
-  poseDirty = true; needDraw = true;
+  bReal.textContent = on ? 'Stop showing' : 'Show a tab or window';
+  b3d.hidden = !on || !share.ctx;
+  b3d.setAttribute('aria-pressed', String(share.on3d));
+  b3d.textContent = '3D sound: ' + (share.on3d ? 'on' : 'off');
+  document.body.classList.toggle('sharing', on);
+  document.body.classList.toggle('yt-direct', ytDirect && !on);
 }
-if (chan) chan.onmessage = (e) => {
-  const m = e.data || {};
-  if (m.type === 'hello') setBooth(true);
-  else if (m.type === 'bye') setBooth(false);
-  else if (m.type === 'nocols') { realCols = null; needDraw = true; }
-  else if (m.type === 'cols') { realCols = m.cols; realAt = performance.now(); needDraw = true; }
-};
-bReal.hidden = !chan || !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
-bReal.addEventListener('click', () => { window.open('booth.html', 'cinema-booth', 'popup,width=440,height=600'); });
-const corner = new THREE.Vector3(), fwd = new THREE.Vector3();
-function sendPose() {
-  if (!chan || !boothOn) return;
-  let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
-  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-    corner.set(sx * SCREEN.w / 2, SCREEN.cy + sy * SCREEN.h / 2, 0).project(cam);
-    const u = clamp((corner.x + 1) / 2, 0, 1), v = clamp((1 - corner.y) / 2, 0, 1);
-    x0 = Math.min(x0, u); x1 = Math.max(x1, u); y0 = Math.min(y0, v); y1 = Math.max(y1, v);
+function sampleShare() {
+  const v = share.video; if (!v || !v.videoWidth) return;
+  try { sCtx.drawImage(v, 0, 0, 6, 4); } catch { return; }
+  const d = sCtx.getImageData(0, 0, 6, 4).data, cols = [];
+  for (let z = 0; z < 3; z++) {
+    let r = 0, g = 0, b = 0;
+    for (let y = 0; y < 4; y++) for (let x = z * 2; x < z * 2 + 2; x++) { const k = (y * 6 + x) * 4; r += d[k]; g += d[k + 1]; b += d[k + 2]; }
+    cols.push([r / 2040, g / 2040, b / 2040]);
   }
-  cam.getWorldDirection(fwd);
-  chan.postMessage({ type: 'pose', pos: [cam.position.x, cam.position.y, cam.position.z], dir: [fwd.x, fwd.y, fwd.z], rect: [x0, y0, x1, y1] });
+  realCols = cols; realAt = performance.now(); needDraw = true;
 }
-setInterval(() => { poseDirty = true; if (boothOn) needDraw = true; }, 2000);
+function impulse(ac, seconds) {
+  const n = Math.floor(ac.sampleRate * seconds), buf = ac.createBuffer(2, n, ac.sampleRate);
+  for (let ch = 0; ch < 2; ch++) { const d = buf.getChannelData(ch); for (let k = 0; k < n; k++) d[k] = (Math.random() * 2 - 1) * Math.pow(1 - k / n, 2.6); }
+  return buf;
+}
+function speaker(ac, x) {
+  const p = ac.createPanner();
+  p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 9; p.rolloffFactor = 0.7; p.maxDistance = 60;
+  p.positionX.value = x; p.positionY.value = SCREEN.cy; p.positionZ.value = 0.3;
+  return p;
+}
+function buildShareAudio() {
+  const ac = new AudioContext({ latencyHint: 'interactive' });
+  const src = ac.createMediaStreamSource(share.stream);
+  const split = ac.createChannelSplitter(2), master = ac.createGain();
+  const dry = ac.createGain(), plain = ac.createGain(), wet = ac.createGain();
+  const left = speaker(ac, -SCREEN.w * 0.45), right = speaker(ac, SCREEN.w * 0.45);
+  const conv = ac.createConvolver(); conv.buffer = impulse(ac, 1.3);
+  src.connect(split); split.connect(left, 0); split.connect(right, 1);
+  left.connect(dry); right.connect(dry);
+  src.connect(conv); conv.connect(wet); src.connect(plain);
+  dry.connect(master); wet.connect(master); plain.connect(master); master.connect(ac.destination);
+  share.ctx = ac; share.nodes = { master, dry, plain, wet };
+  shareMix(); poseDirty = true;
+}
+function shareMix() {
+  if (!share.nodes) return;
+  const t = share.ctx.currentTime, n = share.nodes;
+  n.master.gain.setTargetAtTime(+volEl.value / 100, t, 0.05);
+  n.dry.gain.setTargetAtTime(share.on3d ? 1.25 : 0, t, 0.05);
+  n.wet.gain.setTargetAtTime(share.on3d ? 0.16 : 0, t, 0.05);
+  n.plain.gain.setTargetAtTime(share.on3d ? 0 : 1, t, 0.05);
+}
+const fwd = new THREE.Vector3();
+function sendPose() { // the 3D sound listener sits where the viewer sits and looks where they look
+  if (!share.ctx) return;
+  const l = share.ctx.listener, t = share.ctx.currentTime;
+  cam.getWorldDirection(fwd);
+  if (l.positionX) {
+    l.positionX.setTargetAtTime(cam.position.x, t, 0.05); l.positionY.setTargetAtTime(cam.position.y, t, 0.05); l.positionZ.setTargetAtTime(cam.position.z, t, 0.05);
+    l.forwardX.setTargetAtTime(fwd.x, t, 0.05); l.forwardY.setTargetAtTime(fwd.y, t, 0.05); l.forwardZ.setTargetAtTime(fwd.z, t, 0.05);
+    l.upX.value = 0; l.upY.value = 1; l.upZ.value = 0;
+  } else { l.setPosition(cam.position.x, cam.position.y, cam.position.z); l.setOrientation(fwd.x, fwd.y, fwd.z, 0, 1, 0); }
+}
+function stopShare() {
+  if (!share.stream) return;
+  clearInterval(share.timer);
+  share.stream.getTracks().forEach((t) => t.stop());
+  if (share.ctx) share.ctx.close();
+  share.video.srcObject = null; share.video.remove();
+  share.stream = share.video = share.ctx = share.nodes = null;
+  realCols = null; lightsState = 'pause'; needDraw = true;
+  setNotice(''); shareUi();
+}
+async function startShare() {
+  if (share.stream) { stopShare(); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 30 },
+      audio: { suppressLocalAudioPlayback: true, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      selfBrowserSurface: 'exclude', surfaceSwitching: 'include', systemAudio: 'include',
+    });
+  } catch { return; }
+  try { if (ready) player.pauseVideo(); } catch { /* no player */ }
+  const v = document.createElement('video');
+  v.className = 'shared';
+  v.muted = true; v.playsInline = true; v.srcObject = stream;
+  ytWrap.appendChild(v);
+  share.stream = stream; share.video = v;
+  await v.play().catch(() => {});
+  stream.getVideoTracks()[0].addEventListener('ended', stopShare);
+  if (stream.getAudioTracks().length) buildShareAudio();
+  share.timer = setInterval(sampleShare, 150);
+  lightsState = 'play'; lastActive = performance.now();
+  if (mode !== 'lobby') closeKiosk();
+  shareUi();
+  setNotice(share.ctx ? '' : 'No sound was shared, so the sound still comes from the other tab. To get 3D sound: stop, share a browser tab again and turn on "Also share tab audio".');
+}
+bReal.addEventListener('click', startShare);
+b3d.addEventListener('click', () => { share.on3d = !share.on3d; store.set('share3d', share.on3d); shareMix(); shareUi(); });
 
 // tint for the simple glow: the average colour of the video thumbnail
 function loadTint(id) {
@@ -407,7 +493,7 @@ async function initPlayer() {
         // many music videos refuse to play on a bare IP or localhost address, but play from a host name
         const bareHost = /^(127.0.0.1|localhost)$/.test(location.hostname);
         if ((e.data === 150 || e.data === 101) && bareHost) {
-          location.replace('http://cinema.localtest.me:' + location.port + '/?v=' + encodeURIComponent(current && current.id || ''));
+          location.replace('http://cinema.localhost:' + location.port + '/?v=' + encodeURIComponent(current && current.id || ''));
           return;
         }
         setNotice(`${msg} (error ${e.data})`, { videoUrl: watchUrl(), actions: [100, 101, 150, 153].includes(e.data) });
@@ -480,6 +566,7 @@ seekEl.addEventListener('change', () => {
   scrubbing = false;
 });
 volEl.addEventListener('input', () => {
+  shareMix();
   if (!ready) return;
   const v = +volEl.value;
   if (player.isMuted() && v > 0) player.unMute();
@@ -698,6 +785,7 @@ if (savedSeat && savedSeat.i >= 0 && savedSeat.i < ROWS && savedSeat.j >= 0 && s
 applyAudience();
 applyHall();
 initPlayer();
+shareUi();
 loadTint(startVid.id);
 requestAnimationFrame(frame);
 
